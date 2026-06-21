@@ -1,5 +1,7 @@
+const { protect } = require("../middleware/auth");
 const express = require('express');
 const router = express.Router();
+router.use(protect);
 const sheetService = require('../services/sheetService');
 
 // @route   POST /api/sheets/names
@@ -11,7 +13,7 @@ router.post('/names', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Please provide spreadsheetUrl' });
     }
 
-    const sheets = await sheetService.getSheetNames(spreadsheetUrl);
+    const sheets = await sheetService.getSheetNames(spreadsheetUrl, req.user._id);
     res.json({ success: true, sheets });
   } catch (err) {
     next(err);
@@ -27,7 +29,7 @@ router.post('/columns', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Please provide spreadsheetUrl and sheetName' });
     }
 
-    const columns = await sheetService.getColumns(spreadsheetUrl, sheetName);
+    const columns = await sheetService.getColumns(spreadsheetUrl, sheetName, req.user._id);
     res.json({ success: true, columns });
   } catch (err) {
     next(err);
@@ -43,7 +45,7 @@ router.post('/unique-values', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Please provide spreadsheetUrl, sheetName, and column' });
     }
 
-    const values = await sheetService.getUniqueValues(spreadsheetUrl, sheetName, column);
+    const values = await sheetService.getUniqueValues(spreadsheetUrl, sheetName, column, req.user._id);
     res.json({ success: true, values });
   } catch (err) {
     next(err);
@@ -59,7 +61,7 @@ router.post('/preview', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Please provide spreadsheetUrl, sheetName, and emailColumn' });
     }
 
-    const data = await sheetService.getSheetData(spreadsheetUrl, sheetName);
+    const data = await sheetService.getSheetData(spreadsheetUrl, sheetName, req.user._id);
     const totalRows = data.length;
 
     // Filter data

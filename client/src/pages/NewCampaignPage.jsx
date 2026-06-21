@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, Users, Eye, Plus, Paperclip, X, LayoutTemplate, Save, RotateCcw, ArrowLeft, Mail, Reply, Lock, Calendar } from 'lucide-react';
+import { Send, Users, Eye, Plus, Paperclip, X, LayoutTemplate, Save, RotateCcw, ArrowLeft, Mail, Reply, Lock, Calendar, Link as LinkIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ComposeEditor from '../components/campaign/ComposeEditor';
 import SettingsPanel from '../components/campaign/SettingsPanel';
@@ -8,6 +8,8 @@ import RecipientSelector from '../components/campaign/RecipientSelector';
 import PreviewModal from '../components/campaign/PreviewModal';
 import FollowUpEditor from '../components/campaign/FollowUpEditor';
 import Modal from '../components/common/Modal';
+import Toggle from '../components/common/Toggle';
+import ExcludeRecipientsModal from '../components/campaign/ExcludeRecipientsModal';
 import api from '../api';
 import { useDraft } from '../context/DraftContext';
 import { getBrowserTimezone } from '../utils/timezones';
@@ -25,6 +27,11 @@ const NewCampaignPage = () => {
   const [templateName, setTemplateName] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+  const [testEmailAddress, setTestEmailAddress] = useState('');
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [isMainExcludeModalOpen, setIsMainExcludeModalOpen] = useState(false);
+  const [isRecipientsDirty, setIsRecipientsDirty] = useState(false);
   const [activeStep, setActiveStep] = useState({ type: 'main', index: null });
   const followUpListRef = useRef(null);
   
@@ -72,9 +79,23 @@ const NewCampaignPage = () => {
               }
             });
             setActiveStep({ type: 'main', index: null });
-            // Also if there were recipients, ideally we'd fetch them, but for now we just load the campaign.
-            // Clear the ID from URL so it doesn't refetch on refresh if they navigate away
-            // setSearchParams({}); // Optional: removes id from URL
+
+            // Fetch existing recipients
+            try {
+              const recRes = await api.get(`/campaigns/${id}/recipients`);
+              if (recRes.data.recipients && recRes.data.recipients.length > 0) {
+                setRecipientsData(recRes.data.recipients);
+                
+                // Extract unique columns from recipients data
+                const cols = new Set();
+                recRes.data.recipients.forEach(r => {
+                  if (r.data) Object.keys(r.data).forEach(k => cols.add(k));
+                });
+                setAvailableColumns(Array.from(cols));
+              }
+            } catch (recErr) {
+              console.error('Failed to fetch existing recipients', recErr);
+            }
           }
         } catch {
           toast.error('Failed to load draft campaign');
@@ -225,12 +246,14 @@ const NewCampaignPage = () => {
         : await api.post('/campaigns', campaignForSave);
       const newCamp = campRes.data.campaign;
 
-      if (isExistingDraft) {
-        await api.delete(`/campaigns/${newCamp._id}/recipients`);
+      if (isRecipientsDirty || !isExistingDraft) {
+        if (isExistingDraft) {
+          await api.delete(`/campaigns/${newCamp._id}/recipients`);
+        }
+        await api.post(`/campaigns/${newCamp._id}/recipients/import`, {
+          recipients: recipientsData
+        });
       }
-      await api.post(`/campaigns/${newCamp._id}/recipients/import`, {
-        recipients: recipientsData
-      });
 
       await api.post(`/campaigns/${newCamp._id}/send`);
 
@@ -242,6 +265,38 @@ const NewCampaignPage = () => {
       console.error(error);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!testEmailAddress.trim()) {
+      toast.error('Test email address is required');
+      return;
+    }
+    if (!activeSubject || !activeBody) {
+      toast.error('Subject and body are required to send a test email');
+      return;
+    }
+
+    setIsSendingTest(true);
+    try {
+      // Use the first selected recipient for placeholder data, if available
+      const sampleRecipientData = recipientsData.length > 0 ? recipientsData[0].data : {};
+
+      await api.post('/campaigns/test-draft', {
+        subject: activeSubject,
+        body: activeBody,
+        testEmail: testEmailAddress.trim(),
+        recipientData: sampleRecipientData,
+        fromName: campaign.from?.name || '',
+        fromEmail: campaign.from?.email || ''
+      });
+      toast.success('Test email sent successfully');
+      setIsTestModalOpen(false);
+    } catch {
+      toast.error('Failed to send test email');
+    } finally {
+      setIsSendingTest(false);
     }
   };
 
@@ -415,6 +470,9 @@ const NewCampaignPage = () => {
                 onChange={handleAttachFiles} 
               />
             </label>
+            <button className={compactButtonClass} onClick={() => setIsTestModalOpen(true)}>
+              <Mail size={16} /> Send Test
+            </button>
             <button className={compactButtonClass} onClick={() => setIsPreviewOpen(true)}>
               <Eye size={16} /> Preview
             </button>
@@ -455,13 +513,39 @@ const NewCampaignPage = () => {
                 </div>
               </div>
             </div>
-            {isEditingFollowUp && (
+            {isEditingFollowUp ? (
               <button
                 className="h-8 px-3 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 transition-colors inline-flex items-center justify-center gap-2 self-start sm:self-auto"
                 onClick={() => setActiveStep({ type: 'main', index: null })}
               >
                 <ArrowLeft size={15} /> Main email
               </button>
+            ) : (
+              <div className="flex items-center gap-2 self-start sm:self-auto ml-auto">
+                {campaign.parentCampaignId && (
+                  <div className="h-8 px-2 bg-white border border-gray-300 rounded-lg flex items-center gap-2 text-gray-700">
+                    <LinkIcon size={14} className="text-indigo-500" />
+                    <span className="text-xs font-medium">Same thread</span>
+                    <Toggle 
+                      checked={Boolean(campaign.inSameThread)}
+                      onChange={(val) => setCampaign(prev => ({ ...prev, inSameThread: val }))}
+                    />
+                  </div>
+                )}
+                <button 
+                  className="h-8 px-3 inline-flex items-center justify-center text-sm text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-lg transition-colors font-medium gap-1.5"
+                  onClick={() => setIsMainExcludeModalOpen(true)}
+                  title="Exclude recipients"
+                >
+                  <Users size={14} />
+                  Exclude
+                  {campaign.excludedRecipients?.length > 0 && (
+                    <span className="bg-indigo-200 text-indigo-800 text-xs px-1.5 py-0.5 rounded-full ml-0.5">
+                      {campaign.excludedRecipients.length}
+                    </span>
+                  )}
+                </button>
+              </div>
             )}
           </div>
 
@@ -597,15 +681,24 @@ const NewCampaignPage = () => {
         onImport={(data, columns) => {
           setRecipientsData(data);
           setAvailableColumns(columns);
+          setIsRecipientsDirty(true);
         }}
       />
 
-      <PreviewModal
+        <PreviewModal
         isOpen={isPreviewOpen}
         onClose={() => setIsPreviewOpen(false)}
         campaign={previewCampaign}
         recipientsData={recipientsData}
         attachments={activeAttachments}
+      />
+
+      <ExcludeRecipientsModal 
+        isOpen={isMainExcludeModalOpen}
+        onClose={() => setIsMainExcludeModalOpen(false)}
+        recipientsData={recipientsData}
+        excludedRecipients={campaign.excludedRecipients || []}
+        onSave={(excluded) => setCampaign(prev => ({ ...prev, excludedRecipients: excluded }))}
       />
 
       <Modal
@@ -641,6 +734,39 @@ const NewCampaignPage = () => {
               value={templateDescription}
               onChange={(e) => setTemplateDescription(e.target.value)}
               placeholder="Optional notes for when to reuse this template"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isTestModalOpen}
+        onClose={() => setIsTestModalOpen(false)}
+        title={isEditingFollowUp ? `Test ${activeStepLabel}` : 'Send Test Email'}
+        size="sm"
+        footer={(
+          <>
+            <button className="btn-outline" onClick={() => setIsTestModalOpen(false)}>Cancel</button>
+            <button className="btn-primary gap-2" onClick={handleSendTestEmail} disabled={isSendingTest}>
+              <Send size={16} /> {isSendingTest ? 'Sending...' : 'Send Test'}
+            </button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">
+            Send a test email to verify formatting and placeholders before launching your campaign.
+            {recipientsData.length > 0 && " We'll use your first selected recipient to populate the placeholders."}
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Test recipient email</label>
+            <input
+              type="email"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              value={testEmailAddress}
+              onChange={(e) => setTestEmailAddress(e.target.value)}
+              placeholder="you@example.com"
+              onKeyDown={(e) => e.key === 'Enter' && handleSendTestEmail()}
             />
           </div>
         </div>

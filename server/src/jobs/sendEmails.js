@@ -93,7 +93,7 @@ module.exports = function(agenda) {
         
         const trackingId = campaign.settings.trackEmails ? generateTrackingId() : null;
 
-        const emailResult = await sendEmail({
+        const options = {
           to: recipient.email,
           subject,
           html: body,
@@ -102,7 +102,14 @@ module.exports = function(agenda) {
           attachments: campaign.attachments,
           trackingId,
           trackEmails: campaign.settings.trackEmails
-        });
+        };
+
+        if (campaign.inSameThread && recipient.retargetedFrom && recipient.retargetedFrom.messageId) {
+          options.replyToMessageId = recipient.retargetedFrom.messageId;
+          options.threadId = recipient.retargetedFrom.threadId;
+        }
+
+        const emailResult = await sendEmail(options, campaign.user);
 
         recipient.status = 'sent';
         recipient.mainEmail = {

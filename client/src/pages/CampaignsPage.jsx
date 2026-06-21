@@ -396,9 +396,15 @@ const CampaignsPage = () => {
                         <UserRound size={12} /> {camp.roleName}
                       </span>
                     )}
-                    <span>
-                    Created on {new Date(camp.createdAt).toLocaleDateString()}
-                    </span>
+                    {camp.status === 'scheduled' && camp.schedule?.sendAt ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded font-medium">
+                        <Clock size={12} /> Scheduled for: {new Date(camp.schedule.sendAt).toLocaleString()}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">
+                        Created on {new Date(camp.createdAt).toLocaleDateString()}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -416,7 +422,7 @@ const CampaignsPage = () => {
                 </div>
 
                 <div className="flex items-center gap-2 sm:ml-auto">
-                  {camp.status === 'draft' ? (
+                  {camp.status === 'draft' || camp.status === 'paused' ? (
                     <Link to={`/campaigns/new?id=${camp._id}`} className="btn-outline text-sm gap-2 bg-white">
                       <Edit3 size={16} /> Edit
                     </Link>

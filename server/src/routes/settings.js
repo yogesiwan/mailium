@@ -1,5 +1,10 @@
+const { protect } = require("../middleware/auth");
 const express = require('express');
 const router = express.Router();
+router.use((req, res, next) => {
+  if (req.path === '/oauth/callback') return next();
+  protect(req, res, next);
+});
 const { google } = require('googleapis');
 const Settings = require('../models/Settings');
 const IgnoredIP = require('../models/IgnoredIP');
@@ -59,9 +64,9 @@ const toPublicSettings = (settings) => {
 // @desc    Get current settings
 router.get('/', async (req, res, next) => {
   try {
-    let settings = await Settings.findOne();
+    let settings = await Settings.findOne({ user: req.user._id });
     if (!settings) {
-      settings = await Settings.create({});
+      settings = await Settings.create({ user: req.user._id });
     }
 
     res.json({ success: true, settings: toPublicSettings(settings) });
@@ -74,9 +79,9 @@ router.get('/', async (req, res, next) => {
 // @desc    Update settings
 router.put('/', async (req, res, next) => {
   try {
-    let settings = await Settings.findOne();
+    let settings = await Settings.findOne({ user: req.user._id });
     if (!settings) {
-      settings = new Settings();
+      settings = new Settings({ user: req.user._id });
     }
 
     // Only allow updating specific fields
@@ -124,7 +129,8 @@ router.get('/oauth/url', async (req, res, next) => {
     const url = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent', // Force to get refresh token
-      scope: scopes
+      scope: scopes,
+      state: req.user._id.toString()
     });
 
     res.json({ success: true, url });
@@ -137,7 +143,7 @@ router.get('/oauth/url', async (req, res, next) => {
 // @desc    OAuth callback to store tokens
 router.get('/oauth/callback', async (req, res, next) => {
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
     if (!code) {
       return res.status(400).send('Authentication code is missing');
     }
@@ -170,7 +176,9 @@ router.get('/oauth/callback', async (req, res, next) => {
       delete updateData['google.refreshToken'];
     }
 
-    await Settings.findOneAndUpdate({}, { $set: updateData }, { upsert: true });
+    const userId = state; // We passed req.user._id in state
+
+    await Settings.findOneAndUpdate({ user: userId }, { $set: updateData }, { upsert: true });
 
     // Redirect back to frontend
     res.redirect(`${getFrontendUrl()}/settings?oauth=success`);

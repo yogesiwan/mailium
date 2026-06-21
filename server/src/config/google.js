@@ -10,7 +10,7 @@ const getOAuthCallbackUrl = () => {
  * Creates and returns an authenticated OAuth2 client.
  * If credentials exist in DB, they are used. Otherwise, it falls back to ENV vars.
  */
-const getOAuth2Client = async () => {
+const getOAuth2Client = async (userId) => {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
@@ -19,7 +19,7 @@ const getOAuth2Client = async () => {
 
   try {
     // Try to get tokens from DB first
-    const settings = await Settings.findOne();
+    const settings = await Settings.findOne({ user: userId });
     if (settings && settings.google && settings.google.refreshToken) {
       oauth2Client.setCredentials({
         refresh_token: settings.google.refreshToken,
@@ -41,7 +41,7 @@ const getOAuth2Client = async () => {
         if (tokens.access_token) updateData['google.accessToken'] = tokens.access_token;
         if (tokens.expiry_date) updateData['google.tokenExpiry'] = new Date(tokens.expiry_date);
         
-        await Settings.findOneAndUpdate({}, { $set: updateData }, { upsert: true });
+        await Settings.findOneAndUpdate({ user: userId }, { $set: updateData }, { upsert: true });
         console.log('Google OAuth tokens updated in database');
       }
     });

@@ -1,5 +1,7 @@
+const { protect } = require("../middleware/auth");
 const express = require('express');
 const router = express.Router();
+router.use(protect);
 const Campaign = require('../models/Campaign');
 const Recipient = require('../models/Recipient');
 const Settings = require('../models/Settings');
@@ -11,8 +13,8 @@ const { resolveTimezone } = require('../utils/timezone');
 
 const ACTIVE_FOLLOW_UP_STATUSES = ['pending', 'scheduled', 'sending'];
 
-const normalizeCampaignPayload = async (payload = {}) => {
-  const settings = await Settings.findOne();
+const normalizeCampaignPayload = async (payload = {}, userId) => {
+  const settings = await Settings.findOne({ user: userId });
   const defaultTimezone = resolveTimezone(settings?.defaults?.timezone || payload.schedule?.autopilot?.timezone);
   const schedule = payload.schedule || {};
   const autopilot = schedule.autopilot || {};
@@ -105,7 +107,7 @@ router.get('/', async (req, res, next) => {
     const companyName = req.query.companyName;
     const roleName = req.query.roleName;
 
-    let query = {};
+    let query = { user: req.user._id };
     if (status && status !== 'All') query.status = status;
     if (companyName && companyName !== 'All') query.companyName = companyName;
     if (roleName && roleName !== 'All') query.roleName = roleName;
@@ -142,10 +144,10 @@ router.get('/', async (req, res, next) => {
 router.get('/filters', async (req, res, next) => {
   try {
     const [companies, roles, roleGroups] = await Promise.all([
-      Campaign.distinct('companyName', { companyName: { $exists: true, $ne: '' } }),
-      Campaign.distinct('roleName', { roleName: { $exists: true, $ne: '' } }),
+      Campaign.distinct('companyName', { user: req.user._id, companyName: { $exists: true, $ne: '' } }),
+      Campaign.distinct('roleName', { user: req.user._id, roleName: { $exists: true, $ne: '' } }),
       Campaign.aggregate([
-        { $match: { companyName: { $exists: true, $ne: '' } } },
+        { $match: { user: req.user._id, companyName: { $exists: true, $ne: '' } } },
         {
           $group: {
             _id: { companyName: '$companyName', roleName: '$roleName' },
@@ -171,7 +173,7 @@ router.get('/filters', async (req, res, next) => {
 // @desc    Get single campaign
 router.get('/:id', async (req, res, next) => {
   try {
-    const campaign = await Campaign.findById(req.params.id);
+    const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
@@ -190,7 +192,7 @@ router.get('/:id/recipients', async (req, res, next) => {
     const status = req.query.status;
     const search = req.query.search;
 
-    const query = { campaignId: req.params.id };
+    const query = { campaignId: req.params.id, user: req.user._id };
     if (status && status !== 'All') query.status = status;
     if (search) {
       query.$or = [
@@ -223,7 +225,8 @@ router.get('/:id/recipients', async (req, res, next) => {
 // @desc    Create new campaign
 router.post('/', async (req, res, next) => {
   try {
-    const campaignPayload = await normalizeCampaignPayload(req.body);
+    const campaignPayload = await normalizeCampaignPayload(req.body, req.user._id);
+    campaignPayload.user = req.user._id;
     const campaign = await Campaign.create(campaignPayload);
     res.status(201).json({ success: true, campaign });
   } catch (err) {
@@ -235,7 +238,7 @@ router.post('/', async (req, res, next) => {
 // @desc    Update campaign
 router.put('/:id', async (req, res, next) => {
   try {
-    const existingCampaign = await Campaign.findById(req.params.id);
+    const existingCampaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!existingCampaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
@@ -243,16 +246,20 @@ router.put('/:id', async (req, res, next) => {
     const campaignPayload = await normalizeCampaignPayload({
       ...existingCampaign.toObject(),
       ...req.body
-    });
+    }, req.user._id);
     delete campaignPayload._id;
     delete campaignPayload.createdAt;
     delete campaignPayload.updatedAt;
     delete campaignPayload.__v;
 
-    const campaign = await Campaign.findByIdAndUpdate(req.params.id, campaignPayload, {
-      new: true,
-      runValidators: true
-    });
+    const campaign = await Campaign.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id }, 
+      campaignPayload, 
+      {
+        new: true,
+        runValidators: true
+      }
+    );
 
     res.json({ success: true, campaign });
   } catch (err) {
@@ -264,7 +271,7 @@ router.put('/:id', async (req, res, next) => {
 // @desc    Confirm and schedule draft/edited follow-ups for an existing campaign
 router.post('/:id/follow-ups/schedule', async (req, res, next) => {
   try {
-    const existingCampaign = await Campaign.findById(req.params.id);
+    const existingCampaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!existingCampaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
@@ -272,7 +279,7 @@ router.post('/:id/follow-ups/schedule', async (req, res, next) => {
     const campaignPayload = await normalizeCampaignPayload({
       ...existingCampaign.toObject(),
       followUps: req.body.followUps || existingCampaign.followUps || []
-    });
+    }, req.user._id);
 
     const now = new Date();
     let scheduledCount = 0;
@@ -336,7 +343,7 @@ router.post('/:id/follow-ups/schedule', async (req, res, next) => {
 // @desc    Cancel a scheduled follow-up without deleting it from the timeline
 router.post('/:id/follow-ups/:order/cancel', async (req, res, next) => {
   try {
-    const campaign = await Campaign.findById(req.params.id);
+    const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
@@ -373,7 +380,7 @@ router.delete('/:id', async (req, res, next) => {
     }
     
     // Delete associated recipients and tracking events (could be done via mongoose middleware too)
-    await Recipient.deleteMany({ campaignId: req.params.id });
+    await Recipient.deleteMany({ campaignId: req.params.id, user: req.user._id });
     const TrackingEvent = require('../models/TrackingEvent');
     await TrackingEvent.deleteMany({ campaignId: req.params.id });
     
@@ -385,11 +392,98 @@ router.delete('/:id', async (req, res, next) => {
   }
 });
 
+// @route   POST /api/campaigns/:id/retarget
+// @desc    Branch a campaign by retargeting specific recipients
+router.post('/:id/retarget', async (req, res, next) => {
+  try {
+    const { recipientIds } = req.body;
+    if (!recipientIds || !Array.isArray(recipientIds) || recipientIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'recipientIds array is required' });
+    }
+
+    const parentCampaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
+    if (!parentCampaign) {
+      return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+
+    // Create the branched campaign
+    const branchedCampaign = new Campaign({
+      user: req.user._id,
+      parentCampaignId: parentCampaign._id,
+      name: `${parentCampaign.name} (Retargeted)`,
+      companyName: parentCampaign.companyName,
+      roleName: parentCampaign.roleName,
+      status: 'draft',
+      from: parentCampaign.from,
+      subject: parentCampaign.subject,
+      body: parentCampaign.body,
+      inSameThread: true, // Default to true as per user request for quick retargeting
+      attachments: parentCampaign.attachments,
+      settings: parentCampaign.settings,
+      recipientSource: parentCampaign.recipientSource
+      // Intentionally omitting followUps and schedules to start fresh
+    });
+
+    await branchedCampaign.save();
+
+    // Fetch the specific recipients to copy
+    const oldRecipients = await Recipient.find({
+      _id: { $in: recipientIds },
+      campaignId: parentCampaign._id,
+      user: req.user._id
+    });
+
+    // Create new recipients for the branched campaign
+    const newRecipients = oldRecipients.map(oldR => {
+      // Find the last message sent to thread replies correctly
+      let lastMessageId = oldR.mainEmail?.messageId;
+      let lastThreadId = oldR.mainEmail?.threadId;
+      let lastGmailThreadId = oldR.mainEmail?.gmailThreadId;
+
+      if (oldR.followUps && oldR.followUps.length > 0) {
+        // Iterate backwards to find the last sent followUp with a messageId
+        for (let i = oldR.followUps.length - 1; i >= 0; i--) {
+          if (oldR.followUps[i].messageId) {
+            lastMessageId = oldR.followUps[i].messageId;
+            lastThreadId = oldR.followUps[i].threadId;
+            lastGmailThreadId = oldR.followUps[i].gmailThreadId;
+            break;
+          }
+        }
+      }
+
+      return {
+        user: req.user._id,
+        campaignId: branchedCampaign._id,
+        email: oldR.email,
+        data: oldR.data,
+        status: 'pending',
+        retargetedFrom: {
+          campaignId: parentCampaign._id,
+          messageId: lastMessageId,
+          threadId: lastThreadId,
+          gmailThreadId: lastGmailThreadId
+        }
+      };
+    });
+
+    if (newRecipients.length > 0) {
+      await Recipient.insertMany(newRecipients);
+      branchedCampaign.stats.totalRecipients = newRecipients.length;
+      await branchedCampaign.save();
+    }
+
+    res.json({ success: true, campaign: branchedCampaign });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // @route   POST /api/campaigns/:id/send
 // @desc    Start sending campaign
 router.post('/:id/send', async (req, res, next) => {
   try {
-    const campaign = await Campaign.findById(req.params.id);
+    const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
@@ -421,7 +515,7 @@ router.post('/:id/send', async (req, res, next) => {
 // @desc    Manually sync Gmail replies for a campaign
 router.post('/:id/sync-replies', async (req, res, next) => {
   try {
-    const campaign = await Campaign.findById(req.params.id);
+    const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
@@ -438,7 +532,7 @@ router.post('/:id/sync-replies', async (req, res, next) => {
 // @desc    Pause campaign
 router.post('/:id/pause', async (req, res, next) => {
   try {
-    const campaign = await Campaign.findById(req.params.id);
+    const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!campaign || !['scheduled', 'sending'].includes(campaign.status)) {
       return res.status(400).json({ success: false, error: 'Campaign is not currently scheduled or sending' });
     }
@@ -459,7 +553,7 @@ router.post('/:id/pause', async (req, res, next) => {
 // @desc    Resume campaign
 router.post('/:id/resume', async (req, res, next) => {
   try {
-    const campaign = await Campaign.findById(req.params.id);
+    const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!campaign || campaign.status !== 'paused') {
       return res.status(400).json({ success: false, error: 'Campaign is not paused' });
     }
@@ -486,7 +580,7 @@ router.post('/:id/resume', async (req, res, next) => {
 router.post('/:id/test', async (req, res, next) => {
   try {
     const { testEmail } = req.body; // If provided, else use sender email
-    const campaign = await Campaign.findById(req.params.id);
+    const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
@@ -500,7 +594,7 @@ router.post('/:id/test', async (req, res, next) => {
     const body = replacePlaceholders(campaign.body, data);
     const to = testEmail || campaign.from.email;
 
-    await sendTestEmail(to, subject, body, campaign.from.name, campaign.from.email);
+    await sendTestEmail(to, subject, body, campaign.from.name, campaign.from.email, req.user._id);
 
     res.json({ success: true, message: 'Test email sent successfully' });
   } catch (err) {
@@ -522,7 +616,7 @@ router.post('/test-draft', async (req, res, next) => {
     const parsedSubject = replacePlaceholders(subject, data);
     const parsedBody = replacePlaceholders(body, data);
 
-    await sendTestEmail(testEmail, parsedSubject, parsedBody, fromName || 'Mailium User', fromEmail || process.env.GOOGLE_USER_EMAIL);
+    await sendTestEmail(testEmail, parsedSubject, parsedBody, fromName || 'Mailium User', fromEmail || process.env.GOOGLE_USER_EMAIL, req.user._id);
 
     res.json({ success: true, message: 'Test draft email sent successfully' });
   } catch (err) {
@@ -539,8 +633,8 @@ router.patch('/:id/name', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Name is required' });
     }
     
-    const campaign = await Campaign.findByIdAndUpdate(
-      req.params.id, 
+    const campaign = await Campaign.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id }, 
       { name }, 
       { new: true, runValidators: true }
     );
@@ -559,7 +653,7 @@ router.patch('/:id/name', async (req, res, next) => {
 // @desc    Duplicate a campaign
 router.post('/:id/duplicate', async (req, res, next) => {
   try {
-    const original = await Campaign.findById(req.params.id);
+    const original = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!original) return res.status(404).json({ success: false, error: 'Campaign not found' });
 
     const newCampaignData = original.toObject();

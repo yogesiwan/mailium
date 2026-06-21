@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../api';
-import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck } from 'lucide-react';
+import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch } from 'lucide-react';
 import toast from 'react-hot-toast';
 import FollowUpEditor from '../components/campaign/FollowUpEditor';
 import ComposeEditor from '../components/campaign/ComposeEditor';
@@ -22,6 +22,7 @@ const isBlankHtml = (value = '') => {
 
 const CampaignDetailPage = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   
@@ -46,6 +47,10 @@ const CampaignDetailPage = () => {
   const [templateName, setTemplateName] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+  const [testEmailAddress, setTestEmailAddress] = useState('');
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [isBranching, setIsBranching] = useState(false);
   const actionsRef = useRef(null);
   const isSequenceDirtyRef = useRef(false);
 
@@ -176,6 +181,50 @@ const CampaignDetailPage = () => {
       toast.error('Failed to save template');
     } finally {
       setIsSavingTemplate(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!testEmailAddress.trim()) {
+      toast.error('Test email address is required');
+      return;
+    }
+
+    setIsSendingTest(true);
+    try {
+      await api.post(`/campaigns/${id}/test`, { testEmail: testEmailAddress.trim() });
+      toast.success('Test email sent successfully');
+      setIsTestModalOpen(false);
+    } catch {
+      toast.error('Failed to send test email');
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
+
+  const handleBranchCampaign = async () => {
+    // Automatically exclude anyone who has already replied, as retargeting them is generally a mistake
+    // and explicitly requested by the user
+    const unrepliedRecipients = filteredTrackingDetails.filter(r => r.status !== 'replied' && !r.replied);
+
+    if (unrepliedRecipients.length === 0) {
+      toast.error(filteredTrackingDetails.length > 0 
+        ? 'All filtered recipients have already replied.' 
+        : 'No recipients selected to branch'
+      );
+      return;
+    }
+    
+    setIsBranching(true);
+    try {
+      const recipientIds = unrepliedRecipients.map(r => r._id);
+      const res = await api.post(`/campaigns/${id}/retarget`, { recipientIds });
+      toast.success('Branched campaign created successfully!');
+      navigate(`/campaigns/new?id=${res.data.campaign._id}`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to branch campaign');
+    } finally {
+      setIsBranching(false);
     }
   };
 
@@ -426,8 +475,15 @@ const CampaignDetailPage = () => {
               )}
               {getStatusBadge(campaign.status)}
             </div>
-            <div className="text-sm text-gray-500 mt-2 flex items-center gap-2">
-              <Clock size={14} /> Created: {campaign.startedAt || campaign.createdAt ? new Date(campaign.startedAt || campaign.createdAt).toLocaleString() : 'Not started'}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-2">
+              <div className="text-sm text-gray-500 flex items-center gap-2">
+                <Clock size={14} /> Created: {campaign.startedAt || campaign.createdAt ? new Date(campaign.startedAt || campaign.createdAt).toLocaleString() : 'Not started'}
+              </div>
+              {campaign.status === 'scheduled' && campaign.schedule?.sendAt && (
+                <div className="text-sm font-medium text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 w-fit border border-amber-200">
+                  <CalendarCheck size={14} /> Scheduled for: {new Date(campaign.schedule.sendAt).toLocaleString()}
+                </div>
+              )}
             </div>
             <div className="text-xs text-gray-500 mt-2 inline-flex items-center gap-1.5">
               <RefreshCw size={12} className={isStatsRefreshing ? 'animate-spin' : ''} />
@@ -459,6 +515,16 @@ const CampaignDetailPage = () => {
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                 >
                   <LayoutTemplate size={16} className="text-gray-400" /> Save as Template
+                </button>
+                <button
+                  onClick={() => {
+                    setTestEmailAddress('');
+                    setIsTestModalOpen(true);
+                    setActionsOpen(false);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <Mail size={16} className="text-gray-400" /> Send Test Email
                 </button>
                 {(['scheduled', 'sending', 'paused'].includes(campaign.status)) && (
                   <button 
@@ -528,6 +594,14 @@ const CampaignDetailPage = () => {
             <p className="text-sm text-gray-500 mt-1">Recipient-level engagement with opens, clicks, replies, and last activity timestamps.</p>
           </div>
           <div className="flex items-center gap-2">
+            <button 
+              className="btn-outline text-sm gap-2" 
+              onClick={handleBranchCampaign}
+              disabled={isBranching || filteredTrackingDetails.length === 0}
+            >
+              {isBranching ? <Loader2 size={16} className="animate-spin" /> : <GitBranch size={16} />}
+              Branch Filtered
+            </button>
             <select
               className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               value={trackingFilter}
@@ -762,6 +836,7 @@ const CampaignDetailPage = () => {
                   <tr>
                     <th className="px-6 py-4">Email</th>
                     <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4 text-center">Sent At</th>
                     <th className="px-6 py-4 text-center">Opened</th>
                     <th className="px-6 py-4 text-center">Clicked</th>
                   </tr>
@@ -790,6 +865,9 @@ const CampaignDetailPage = () => {
                             {r.status === 'opened' && <Eye size={12} />}
                             {r.status}
                           </span>
+                        </td>
+                        <td className="px-6 py-4 text-center text-xs text-gray-500 font-medium">
+                          {r.status === 'sent' && r.mainEmail?.sentAt ? formatDateTime(r.mainEmail.sentAt, campaignTimezone) : '-'}
                         </td>
                         <td className="px-6 py-4 text-center">
                           {r.mainEmail?.opened ? <span className="text-emerald-500 flex justify-center"><CheckCircle2 size={18}/></span> : <span className="text-gray-300">-</span>}
@@ -917,6 +995,38 @@ const CampaignDetailPage = () => {
               value={templateDescription}
               onChange={(e) => setTemplateDescription(e.target.value)}
               placeholder="Optional notes about when this template should be reused"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isTestModalOpen}
+        onClose={() => setIsTestModalOpen(false)}
+        title="Send Test Email"
+        size="sm"
+        footer={(
+          <>
+            <button className="btn-outline" onClick={() => setIsTestModalOpen(false)}>Cancel</button>
+            <button className="btn-primary gap-2" onClick={handleSendTestEmail} disabled={isSendingTest}>
+              <Mail size={16} /> {isSendingTest ? 'Sending...' : 'Send Test'}
+            </button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">
+            Send a test email for this campaign. The email will use placeholder data from the first recipient in your list.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Test recipient email</label>
+            <input
+              type="email"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              value={testEmailAddress}
+              onChange={(e) => setTestEmailAddress(e.target.value)}
+              placeholder="you@example.com"
+              onKeyDown={(e) => e.key === 'Enter' && handleSendTestEmail()}
             />
           </div>
         </div>

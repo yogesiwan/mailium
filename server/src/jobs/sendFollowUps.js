@@ -176,7 +176,7 @@ module.exports = function(agenda) {
                 trackEmails: campaign.settings.trackEmails,
                 replyToMessageId,
                 threadId
-              });
+              }, campaign.user);
 
               // Add to recipient followUps array
               recipient.followUps.push({

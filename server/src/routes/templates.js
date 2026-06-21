@@ -1,5 +1,7 @@
+const { protect } = require("../middleware/auth");
 const express = require('express');
 const router = express.Router();
+router.use(protect);
 const Template = require('../models/Template');
 const Campaign = require('../models/Campaign');
 
@@ -11,7 +13,7 @@ router.get('/', async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 20;
     const search = req.query.search;
 
-    let query = {};
+    let query = { user: req.user._id };
     if (search) {
       query.$text = { $search: search };
     }
@@ -39,7 +41,7 @@ router.get('/', async (req, res, next) => {
 // @desc    Get single template
 router.get('/:id', async (req, res, next) => {
   try {
-    const template = await Template.findById(req.params.id);
+    const template = await Template.findOne({ _id: req.params.id, user: req.user._id });
     if (!template) {
       return res.status(404).json({ success: false, error: 'Template not found' });
     }
@@ -53,7 +55,8 @@ router.get('/:id', async (req, res, next) => {
 // @desc    Create template
 router.post('/', async (req, res, next) => {
   try {
-    const template = await Template.create(req.body);
+    const templateData = { ...req.body, user: req.user._id };
+    const template = await Template.create(templateData);
     res.status(201).json({ success: true, template });
   } catch (err) {
     next(err);
@@ -64,10 +67,11 @@ router.post('/', async (req, res, next) => {
 // @desc    Update template
 router.put('/:id', async (req, res, next) => {
   try {
-    const template = await Template.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true
-    });
+    const template = await Template.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id }, 
+      req.body, 
+      { new: true, runValidators: true }
+    );
     if (!template) {
       return res.status(404).json({ success: false, error: 'Template not found' });
     }
@@ -81,7 +85,7 @@ router.put('/:id', async (req, res, next) => {
 // @desc    Delete template
 router.delete('/:id', async (req, res, next) => {
   try {
-    const template = await Template.findById(req.params.id);
+    const template = await Template.findOne({ _id: req.params.id, user: req.user._id });
     if (!template) {
       return res.status(404).json({ success: false, error: 'Template not found' });
     }
@@ -96,7 +100,7 @@ router.delete('/:id', async (req, res, next) => {
 // @desc    Save campaign as template
 router.post('/from-campaign/:campaignId', async (req, res, next) => {
   try {
-    const campaign = await Campaign.findById(req.params.campaignId);
+    const campaign = await Campaign.findOne({ _id: req.params.campaignId, user: req.user._id });
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
@@ -107,6 +111,7 @@ router.post('/from-campaign/:campaignId', async (req, res, next) => {
     }
 
     const templateData = {
+      user: req.user._id,
       name,
       description,
       subject: campaign.subject,

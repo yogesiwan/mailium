@@ -1,5 +1,7 @@
+const { protect } = require("../middleware/auth");
 const express = require('express');
 const router = express.Router();
+router.use(protect);
 const Campaign = require('../models/Campaign');
 const Recipient = require('../models/Recipient');
 const TrackingEvent = require('../models/TrackingEvent');
@@ -44,6 +46,7 @@ router.get('/overview', async (req, res, next) => {
   try {
     // Aggregate global stats from campaigns
     const stats = await Campaign.aggregate([
+      { $match: { user: req.user._id } },
       {
         $group: {
           _id: null,
@@ -67,15 +70,15 @@ router.get('/overview', async (req, res, next) => {
     const clickRate = globalStats.totalSent > 0 ? (globalStats.totalClicked / globalStats.totalSent) * 100 : 0;
     const replyRate = globalStats.totalSent > 0 ? (globalStats.totalReplied / globalStats.totalSent) * 100 : 0;
 
-    const campaignCount = await Campaign.countDocuments();
-    const recentCampaigns = await Campaign.find()
+    const campaignCount = await Campaign.countDocuments({ user: req.user._id });
+    const recentCampaigns = await Campaign.find({ user: req.user._id })
       .sort({ createdAt: -1 })
       .limit(5)
       .select('name companyName roleName status stats createdAt startedAt completedAt');
 
     // Group by company
     const byCompany = await Campaign.aggregate([
-      { $match: { companyName: { $exists: true, $ne: "" } } },
+      { $match: { user: req.user._id, companyName: { $exists: true, $ne: "" } } },
       {
         $group: {
           _id: "$companyName",
@@ -90,7 +93,7 @@ router.get('/overview', async (req, res, next) => {
 
     // Group by role
     const byRole = await Campaign.aggregate([
-      { $match: { roleName: { $exists: true, $ne: "" } } },
+      { $match: { user: req.user._id, roleName: { $exists: true, $ne: "" } } },
       {
         $group: {
           _id: "$roleName",
@@ -129,6 +132,10 @@ router.get('/campaigns/:id/tracking', async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 25;
     const type = req.query.type;
+    const campaign = await Campaign.findOne({ _id: campaignId, user: req.user._id });
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
     const query = { campaignId };
     if (type && type !== 'All') query.type = type;
 
@@ -159,7 +166,7 @@ router.get('/campaigns/:id/tracking', async (req, res, next) => {
 router.get('/campaigns/:id', async (req, res, next) => {
   try {
     const campaignId = req.params.id;
-    const campaign = await Campaign.findById(campaignId).lean();
+    const campaign = await Campaign.findOne({ _id: campaignId, user: req.user._id }).lean();
     
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });

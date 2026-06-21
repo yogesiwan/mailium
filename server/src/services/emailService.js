@@ -6,9 +6,9 @@ const Settings = require('../models/Settings');
 /**
  * Creates and returns a configured Nodemailer transporter using Gmail OAuth2
  */
-const createTransporter = async () => {
+const createTransporter = async (userId) => {
   try {
-    const oauth2Client = await getOAuth2Client();
+    const oauth2Client = await getOAuth2Client(userId);
     
     // The access token must be refreshed if expired, getAccessToken handles this
     const accessTokenResponse = await oauth2Client.getAccessToken();
@@ -18,7 +18,7 @@ const createTransporter = async () => {
       throw new Error('Failed to retrieve access token. Check Google OAuth credentials.');
     }
 
-    const settings = await Settings.findOne();
+    const settings = await Settings.findOne({ user: userId });
     const user = settings?.google?.userEmail || process.env.GOOGLE_USER_EMAIL;
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -58,14 +58,14 @@ const createTransporter = async () => {
  * @param {string} options.threadId - Optional Gmail Thread ID
  * @returns {Object} { messageId, threadId }
  */
-const sendEmail = async (options) => {
+const sendEmail = async (options, userId) => {
   const { 
     to, subject, html, fromName, fromEmail, attachments, 
     trackingId, trackEmails, replyToMessageId, threadId 
   } = options;
 
   try {
-    const transporter = await createTransporter();
+    const transporter = await createTransporter(userId);
     
     // Process HTML for tracking if enabled and trackingId is provided
     let processedHtml = html.replace(/<p><\/p>/g, '<p><br></p>');
@@ -141,7 +141,7 @@ const sendEmail = async (options) => {
 /**
  * Sends a test email without tracking
  */
-const sendTestEmail = async (to, subject, html, fromName, fromEmail) => {
+const sendTestEmail = async (to, subject, html, fromName, fromEmail, userId) => {
   return sendEmail({
     to,
     subject: `[TEST] ${subject}`,
@@ -149,7 +149,7 @@ const sendTestEmail = async (to, subject, html, fromName, fromEmail) => {
     fromName,
     fromEmail,
     trackEmails: false
-  });
+  }, userId);
 };
 
 module.exports = {

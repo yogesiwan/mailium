@@ -26,6 +26,7 @@ app.use(morgan('dev'));
 app.use('/uploads', express.static('uploads'));
 
 // Define Routes
+app.use('/api/auth', require('./routes/auth'));
 app.use('/api/campaigns', require('./routes/campaigns'));
 app.use('/api/campaigns/:campaignId/recipients', require('./routes/recipients'));
 app.use('/api/templates', require('./routes/templates'));

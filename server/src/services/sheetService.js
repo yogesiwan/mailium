@@ -63,18 +63,18 @@ const extractSpreadsheetId = (url) => {
 /**
  * Gets the sheets API instance
  */
-const getSheetsApi = async () => {
-  const auth = await getOAuth2Client();
+const getSheetsApi = async (userId) => {
+  const auth = await getOAuth2Client(userId);
   return google.sheets({ version: 'v4', auth });
 };
 
 /**
  * Gets all sheet names (tabs) from a spreadsheet
  */
-const getSheetNames = async (spreadsheetUrl) => {
+const getSheetNames = async (spreadsheetUrl, userId) => {
   try {
     const spreadsheetId = extractSpreadsheetId(spreadsheetUrl);
-    const sheetsApi = await getSheetsApi();
+    const sheetsApi = await getSheetsApi(userId);
     
     const response = await sheetsApi.spreadsheets.get({
       spreadsheetId,
@@ -91,10 +91,10 @@ const getSheetNames = async (spreadsheetUrl) => {
 /**
  * Gets the column headers (first row) from a specific sheet
  */
-const getColumns = async (spreadsheetUrl, sheetName) => {
+const getColumns = async (spreadsheetUrl, sheetName, userId) => {
   try {
     const spreadsheetId = extractSpreadsheetId(spreadsheetUrl);
-    const sheetsApi = await getSheetsApi();
+    const sheetsApi = await getSheetsApi(userId);
     
     const response = await sheetsApi.spreadsheets.values.get({
       spreadsheetId,
@@ -116,10 +116,10 @@ const getColumns = async (spreadsheetUrl, sheetName) => {
 /**
  * Gets all data from a specific sheet, formatted as array of objects
  */
-const getSheetData = async (spreadsheetUrl, sheetName) => {
+const getSheetData = async (spreadsheetUrl, sheetName, userId) => {
   try {
     const spreadsheetId = extractSpreadsheetId(spreadsheetUrl);
-    const sheetsApi = await getSheetsApi();
+    const sheetsApi = await getSheetsApi(userId);
     
     const response = await sheetsApi.spreadsheets.values.get({
       spreadsheetId,
@@ -152,9 +152,9 @@ const getSheetData = async (spreadsheetUrl, sheetName) => {
 /**
  * Gets unique values for a specific column in a sheet
  */
-const getUniqueValues = async (spreadsheetUrl, sheetName, columnName) => {
+const getUniqueValues = async (spreadsheetUrl, sheetName, columnName, userId) => {
   try {
-    const data = await getSheetData(spreadsheetUrl, sheetName);
+    const data = await getSheetData(spreadsheetUrl, sheetName, userId);
     
     // Extract column values, remove empty/undefined
     const values = data

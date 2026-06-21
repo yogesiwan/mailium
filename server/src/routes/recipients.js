@@ -1,5 +1,7 @@
+const { protect } = require("../middleware/auth");
 const express = require('express');
-const router = express.Router({ mergeParams: true }); // Merge params to get campaignId
+const router = express.Router({ mergeParams: true });
+router.use(protect);
 const Recipient = require('../models/Recipient');
 const Campaign = require('../models/Campaign');
 
@@ -13,7 +15,7 @@ router.get('/', async (req, res, next) => {
     const status = req.query.status;
     const search = req.query.search;
 
-    let query = { campaignId };
+    let query = { campaignId, user: req.user._id };
     if (status && status !== 'All') query.status = status;
     if (search) {
       query.email = { $regex: search, $options: 'i' };
@@ -50,6 +52,7 @@ router.post('/import', async (req, res, next) => {
 
     // Format for bulk insert
     const formattedRecipients = recipientsData.map(r => ({
+      user: req.user._id,
       campaignId,
       email: r.email,
       data: r.data || {},
@@ -74,8 +77,8 @@ router.post('/import', async (req, res, next) => {
     }
 
     // Update campaign recipient count
-    const totalRecipients = await Recipient.countDocuments({ campaignId });
-    await Campaign.findByIdAndUpdate(campaignId, { 'stats.totalRecipients': totalRecipients });
+    const totalRecipients = await Recipient.countDocuments({ campaignId, user: req.user._id });
+    await Campaign.findOneAndUpdate({ _id: campaignId, user: req.user._id }, { 'stats.totalRecipients': totalRecipients });
 
     res.json({
       success: true,
@@ -99,8 +102,8 @@ router.delete('/', async (req, res, next) => {
   try {
     const { campaignId } = req.params;
     
-    const result = await Recipient.deleteMany({ campaignId });
-    await Campaign.findByIdAndUpdate(campaignId, { 'stats.totalRecipients': 0 });
+    const result = await Recipient.deleteMany({ campaignId, user: req.user._id });
+    await Campaign.findOneAndUpdate({ _id: campaignId, user: req.user._id }, { 'stats.totalRecipients': 0 });
     
     res.json({ success: true, deletedCount: result.deletedCount });
   } catch (err) {

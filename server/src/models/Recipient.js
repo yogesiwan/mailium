@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const recipientSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign', index: true, required: true },
   email: { type: String, required: true },
   data: mongoose.Schema.Types.Mixed,
@@ -9,6 +10,13 @@ const recipientSchema = new mongoose.Schema({
     type: String,
     enum: ["pending", "queued", "sent", "opened", "clicked", "replied", "bounced", "failed"],
     default: "pending"
+  },
+
+  retargetedFrom: {
+    campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
+    messageId: String,
+    threadId: String,
+    gmailThreadId: String
   },
 
   mainEmail: {

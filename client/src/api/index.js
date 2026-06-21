@@ -7,6 +7,15 @@ const api = axios.create({
   }
 });
 
+// Interceptor for auth header
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 // Interceptor for errors
 api.interceptors.response.use(
   (response) => response,

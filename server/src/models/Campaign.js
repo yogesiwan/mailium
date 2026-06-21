@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 
 const campaignSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  parentCampaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
   name: { type: String, required: true },
   companyName: String,
   roleName: String,
@@ -15,6 +17,8 @@ const campaignSchema = new mongoose.Schema({
   },
   subject: { type: String, required: true },
   body: { type: String, required: true },
+  inSameThread: { type: Boolean, default: false },
+  excludedRecipients: [{ type: String }],
   attachments: [{
     filename: String,
     originalName: String,
