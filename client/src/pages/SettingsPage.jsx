@@ -52,8 +52,8 @@ const SettingsPage = () => {
       if (res.data.success) {
         window.location.href = res.data.url;
       }
-    } catch {
-      toast.error('Failed to start Google OAuth');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to start Google OAuth');
       setConnecting(false);
     }
   };
@@ -87,6 +87,8 @@ const SettingsPage = () => {
 
   const google = settings?.google || {};
   const isConfigured = Boolean(google.isConfigured);
+  const oauthAvailable = google.oauthAvailable !== false;
+  const isEnvConfigured = google.source === 'environment';
   const timezoneOptions = COMMON_TIMEZONES.includes(defaults.timezone)
     ? COMMON_TIMEZONES
     : [defaults.timezone, ...COMMON_TIMEZONES];
@@ -112,7 +114,7 @@ const SettingsPage = () => {
               </div>
               {isConfigured && (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-100">
-                  <CheckCircle2 size={14} /> Connected
+                  <CheckCircle2 size={14} /> {isEnvConfigured ? 'Server env ready' : 'Connected'}
                 </span>
               )}
             </div>
@@ -129,15 +131,23 @@ const SettingsPage = () => {
                       <div className="text-sm text-gray-500 truncate">{google.userEmail}</div>
                     </div>
                   </div>
-                  <button className="btn-outline gap-2 text-sm" onClick={connectGoogle} disabled={connecting}>
-                    <RefreshCw size={16} /> {connecting ? 'Opening...' : 'Change account'}
-                  </button>
+                  {oauthAvailable ? (
+                    <button className="btn-outline gap-2 text-sm" onClick={connectGoogle} disabled={connecting}>
+                      <RefreshCw size={16} /> {connecting ? 'Opening...' : 'Change account'}
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-xs font-medium text-gray-600">
+                      Managed by server env
+                    </span>
+                  )}
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div className="rounded-lg bg-white border border-gray-100 p-3">
                     <div className="text-xs font-medium text-gray-500 mb-1">Scopes</div>
-                    <div className="text-gray-700">{google.scopes?.length || 0} permissions granted</div>
+                    <div className="text-gray-700">
+                      {isEnvConfigured ? 'Loaded from refresh token' : `${google.scopes?.length || 0} permissions granted`}
+                    </div>
                   </div>
                   <div className="rounded-lg bg-white border border-gray-100 p-3">
                     <div className="text-xs font-medium text-gray-500 mb-1">Server time</div>
@@ -149,9 +159,13 @@ const SettingsPage = () => {
               <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <div className="font-semibold text-amber-950">Google is not connected</div>
-                  <div className="text-sm text-amber-800 mt-1">Connect before sending real campaigns or importing private sheets.</div>
+                  <div className="text-sm text-amber-800 mt-1">
+                    {oauthAvailable
+                      ? 'Connect before sending real campaigns or importing private sheets.'
+                      : 'OAuth needs HTTPS in production. Add Gmail OAuth env credentials or deploy behind an HTTPS domain.'}
+                  </div>
                 </div>
-                <button className="btn-primary gap-2" onClick={connectGoogle} disabled={connecting}>
+                <button className="btn-primary gap-2" onClick={connectGoogle} disabled={connecting || !oauthAvailable}>
                   <ExternalLink size={16} /> {connecting ? 'Opening...' : 'Connect Google'}
                 </button>
               </div>
@@ -240,6 +254,10 @@ const SettingsPage = () => {
                 <span className={isConfigured ? 'font-medium text-emerald-700' : 'font-medium text-amber-700'}>
                   {isConfigured ? 'Ready' : 'Needs setup'}
                 </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-gray-500">Credential source</span>
+                <span className="font-medium text-gray-900 capitalize">{google.source || 'none'}</span>
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-gray-500">Server timezone</span>

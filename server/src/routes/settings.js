@@ -9,16 +9,37 @@ const trimTrailingSlash = (value = '') => value.replace(/\/+$/, '');
 const getTrackingBaseUrl = () => trimTrailingSlash(process.env.TRACKING_BASE_URL || 'http://localhost:5001');
 const getFrontendUrl = () => trimTrailingSlash(process.env.FRONTEND_URL || process.env.TRACKING_BASE_URL || 'http://localhost:5173');
 const getOAuthCallbackUrl = () => `${getTrackingBaseUrl()}/api/settings/oauth/callback`;
+const hasEnvGoogleCredentials = () => Boolean(
+  process.env.GOOGLE_CLIENT_ID
+  && process.env.GOOGLE_CLIENT_SECRET
+  && process.env.GOOGLE_REFRESH_TOKEN
+);
+const isSecureOAuthCallback = () => {
+  const callbackUrl = getOAuthCallbackUrl();
+  return callbackUrl.startsWith('https://')
+    || callbackUrl.startsWith('http://localhost')
+    || callbackUrl.startsWith('http://127.0.0.1');
+};
 
 const toPublicSettings = (settings) => {
   const publicSettings = settings.toObject();
-  if (publicSettings.google) {
-    publicSettings.google.isConfigured = !!publicSettings.google.refreshToken;
-    publicSettings.google.connectedAt = publicSettings.google.tokenExpiry || null;
-    delete publicSettings.google.refreshToken;
-    delete publicSettings.google.accessToken;
-    delete publicSettings.google.clientSecret;
-  }
+  const googleSettings = publicSettings.google || {};
+  const hasDbGoogleCredentials = Boolean(googleSettings.refreshToken);
+  const hasEnvCredentials = hasEnvGoogleCredentials();
+
+  publicSettings.google = {
+    ...googleSettings,
+    userEmail: googleSettings.userEmail || process.env.GOOGLE_USER_EMAIL || '',
+    userName: googleSettings.userName || (hasEnvCredentials ? 'Google account from server env' : ''),
+    scopes: googleSettings.scopes || [],
+    isConfigured: hasDbGoogleCredentials || hasEnvCredentials,
+    connectedAt: googleSettings.tokenExpiry || null,
+    source: hasDbGoogleCredentials ? 'database' : hasEnvCredentials ? 'environment' : 'none',
+    oauthAvailable: isSecureOAuthCallback()
+  };
+  delete publicSettings.google.refreshToken;
+  delete publicSettings.google.accessToken;
+  delete publicSettings.google.clientSecret;
 
   publicSettings.server = {
     now: new Date().toISOString(),
@@ -79,6 +100,13 @@ router.put('/', async (req, res, next) => {
 // @desc    Get Google OAuth consent URL
 router.get('/oauth/url', async (req, res, next) => {
   try {
+    if (!isSecureOAuthCallback()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Google OAuth requires an HTTPS redirect URI in production. Configure TRACKING_BASE_URL with HTTPS or use GOOGLE_REFRESH_TOKEN in the server env.'
+      });
+    }
+
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
