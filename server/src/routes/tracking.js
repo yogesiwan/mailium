@@ -4,6 +4,8 @@ const TrackingEvent = require('../models/TrackingEvent');
 const Recipient = require('../models/Recipient');
 const Campaign = require('../models/Campaign');
 const { getPixelImage } = require('../utils/pixelImage');
+const { isbot } = require('isbot');
+const IgnoredIP = require('../models/IgnoredIP');
 
 // Helper to log event and update stats
 const handleTrackingEvent = async (trackingId, type, req, additionalData = {}) => {
@@ -22,6 +24,15 @@ const handleTrackingEvent = async (trackingId, type, req, additionalData = {}) =
     const isMain = recipient.mainEmail.trackingId === trackingId;
     const emailData = isMain ? recipient.mainEmail : recipient.followUps.find(f => f.trackingId === trackingId);
 
+    let rawIp = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const ip = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : rawIp;
+    const userAgent = req.headers['user-agent'] || '';
+
+    // Detect Bot or Ignored IP
+    const botDetected = isbot(userAgent) || userAgent.includes('GoogleImageProxy');
+    const ignoredIpDoc = await IgnoredIP.findOne({ ip });
+    const isIgnored = !!ignoredIpDoc;
+
     // Create event
     await TrackingEvent.create({
       campaignId: recipient.campaignId,
@@ -30,10 +41,17 @@ const handleTrackingEvent = async (trackingId, type, req, additionalData = {}) =
       type,
       metadata: {
         ...additionalData,
-        userAgent: req.headers['user-agent'],
-        ip: req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress
+        userAgent,
+        ip,
+        isBot: botDetected,
+        isIgnored
       }
     });
+
+    // If it's a machine open or ignored IP, we DO NOT update stats
+    if (botDetected || isIgnored) {
+      return recipient;
+    }
 
     // Update recipient based on type
     const updateData = {};

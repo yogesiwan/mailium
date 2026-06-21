@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, ExternalLink, Loader2, Mail, RefreshCw, Save, Settings as SettingsIcon, ShieldCheck, UserRound, Globe2 } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Loader2, Mail, RefreshCw, Save, Settings as SettingsIcon, ShieldCheck, UserRound, Globe2, EyeOff, Plus, Trash2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../api';
 import { COMMON_TIMEZONES, formatDateTime, getBrowserTimezone } from '../utils/timezones';
+import Modal from '../components/common/Modal';
 
 const SettingsPage = () => {
   const [searchParams] = useSearchParams();
   const [settings, setSettings] = useState(null);
+  const [ignoredIps, setIgnoredIps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [addingIp, setAddingIp] = useState(false);
+  const [showLabelDialog, setShowLabelDialog] = useState(false);
+  const [ipLabel, setIpLabel] = useState('My Device');
   const [defaults, setDefaults] = useState({
     fromName: '',
     fromEmail: '',
@@ -22,8 +27,12 @@ const SettingsPage = () => {
   const fetchSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/settings');
+      const [res, ipsRes] = await Promise.all([
+        api.get('/settings'),
+        api.get('/settings/ignored-ips')
+      ]);
       setSettings(res.data.settings);
+      setIgnoredIps(ipsRes.data.ips || []);
       setDefaults({
         fromName: res.data.settings.defaults?.fromName || '',
         fromEmail: res.data.settings.defaults?.fromEmail || '',
@@ -74,6 +83,40 @@ const SettingsPage = () => {
       toast.error('Failed to save settings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddIgnoredIp = async () => {
+    if (!ipLabel.trim()) {
+      toast.error('Label is required');
+      return;
+    }
+    
+    setAddingIp(true);
+    try {
+      const res = await api.post('/settings/ignored-ips', { label: ipLabel.trim() });
+      if (res.data.success) {
+        toast.success('Device IP whitelisted for 24 hours');
+        setShowLabelDialog(false);
+        setIpLabel('My Device');
+        fetchSettings(); // Refresh list
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to whitelist IP');
+    } finally {
+      setAddingIp(false);
+    }
+  };
+
+  const handleDeleteIgnoredIp = async (id) => {
+    try {
+      const res = await api.delete(`/settings/ignored-ips/${id}`);
+      if (res.data.success) {
+        toast.success('IP removed from whitelist');
+        setIgnoredIps(prev => prev.filter(ip => ip._id !== id));
+      }
+    } catch {
+      toast.error('Failed to remove IP');
     }
   };
 
@@ -274,8 +317,87 @@ const SettingsPage = () => {
               Campaign scheduling uses backend time and converts allowed days/time windows through your selected timezone before jobs run.
             </p>
           </div>
+
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide flex items-center gap-2">
+                <EyeOff size={17} className="text-purple-600" /> Tracking Whitelist
+              </h3>
+              <button 
+                className="btn-outline py-1 px-2 text-xs h-auto gap-1"
+                onClick={() => {
+                  setIpLabel('My Device');
+                  setShowLabelDialog(true);
+                }}
+              >
+                <Plus size={12} /> Add Current
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+              Whitelist your devices so your own email opens (e.g., viewing the Sent folder) don't inflate campaign stats. IPs expire after 24h.
+            </p>
+            
+            {ignoredIps.length === 0 ? (
+              <div className="text-xs text-gray-400 italic text-center py-2 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                No whitelisted IPs
+              </div>
+            ) : (
+              <ul className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {ignoredIps.map(item => (
+                  <li key={item._id} className="flex items-center justify-between bg-white border border-gray-100 rounded-lg p-2.5 shadow-sm text-sm">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-gray-900 truncate">{item.label}</div>
+                      <div className="text-xs text-gray-500 font-mono mt-0.5 truncate">{item.ip}</div>
+                    </div>
+                    <button 
+                      onClick={() => handleDeleteIgnoredIp(item._id)}
+                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                      title="Remove"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Label Dialog Modal */}
+      <Modal 
+        isOpen={showLabelDialog} 
+        onClose={() => setShowLabelDialog(false)} 
+        title="Whitelist Device IP"
+        size="sm"
+        footer={
+          <>
+            <button className="btn-outline" onClick={() => setShowLabelDialog(false)}>Cancel</button>
+            <button className="btn-primary" onClick={handleAddIgnoredIp} disabled={addingIp}>
+              {addingIp ? 'Saving...' : 'Whitelist'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Enter a label to help you identify this device later (e.g., "Personal Mobile", "Work Laptop"). This IP will be excluded from tracking metrics for 24 hours.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Device Label</label>
+            <input
+              type="text"
+              autoFocus
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              value={ipLabel}
+              onChange={(e) => setIpLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddIgnoredIp();
+              }}
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

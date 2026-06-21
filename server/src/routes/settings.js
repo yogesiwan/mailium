@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { google } = require('googleapis');
 const Settings = require('../models/Settings');
+const IgnoredIP = require('../models/IgnoredIP');
 const { resolveTimezone } = require('../utils/timezone');
 
 const getServerTimezone = () => resolveTimezone(process.env.TZ);
@@ -176,6 +177,57 @@ router.get('/oauth/callback', async (req, res, next) => {
   } catch (err) {
     console.error('OAuth callback error:', err);
     res.redirect(`${getFrontendUrl()}/settings?oauth=error`);
+  }
+});
+
+// @route   GET /api/settings/ignored-ips
+// @desc    Get all ignored IPs
+router.get('/ignored-ips', async (req, res, next) => {
+  try {
+    const ips = await IgnoredIP.find().sort('-createdAt');
+    res.json({ success: true, ips });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   POST /api/settings/ignored-ips
+// @desc    Add current IP to ignored IPs
+router.post('/ignored-ips', async (req, res, next) => {
+  try {
+    const { label } = req.body;
+    // req.ip works correctly due to app.set('trust proxy', 1) in index.js
+    let rawIp = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    // Extract first IP if it's a comma-separated list
+    const ip = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : rawIp;
+    
+    if (!ip) {
+       return res.status(400).json({ success: false, error: 'Could not determine IP address' });
+    }
+
+    let ignoredIp = await IgnoredIP.findOne({ ip });
+    if (ignoredIp) {
+      ignoredIp.label = label || ignoredIp.label;
+      ignoredIp.createdAt = Date.now();
+      await ignoredIp.save();
+    } else {
+      ignoredIp = await IgnoredIP.create({ ip, label: label || 'Whitelisted Device' });
+    }
+    
+    res.json({ success: true, ip: ignoredIp });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   DELETE /api/settings/ignored-ips/:id
+// @desc    Remove an ignored IP
+router.delete('/ignored-ips/:id', async (req, res, next) => {
+  try {
+    await IgnoredIP.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
   }
 });
 

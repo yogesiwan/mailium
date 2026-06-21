@@ -18,6 +18,7 @@
     "express": "^5.2.1",
     "googleapis": "^173.0.0",
     "helmet": "^8.2.0",
+    "isbot": "^5.1.43",
     "mongoose": "^9.7.1",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
