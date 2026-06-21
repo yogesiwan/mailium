@@ -35,6 +35,7 @@ const campaignSchema = new mongoose.Schema({
   schedule: {
     sendAt: Date,
     timezone: { type: String, default: "Asia/Kolkata" },
+    delayMinutes: { type: Number, default: 0 },
     autopilot: {
       enabled: { type: Boolean, default: false },
       days: {

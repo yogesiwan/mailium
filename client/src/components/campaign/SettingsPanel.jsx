@@ -111,6 +111,21 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
             });
           }}
         />
+        
+        {!campaign.schedule?.autopilot?.enabled && (
+          <div className="mt-4">
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">Delay between emails (minutes)</label>
+            <input 
+              type="number" 
+              value={campaign.schedule?.delayMinutes || 0}
+              onChange={(e) => setCampaign({
+                ...campaign,
+                schedule: { ...campaign.schedule, delayMinutes: parseInt(e.target.value) || 0 }
+              })}
+              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+        )}
 
         <div className="mt-4 space-y-2">
           <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500">

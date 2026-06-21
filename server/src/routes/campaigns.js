@@ -403,9 +403,10 @@ router.post('/:id/send', async (req, res, next) => {
     const now = new Date();
     const sendAt = campaign.schedule?.sendAt ? new Date(campaign.schedule.sendAt) : now;
     const isFutureSchedule = Number.isFinite(sendAt.getTime()) && sendAt.getTime() > now.getTime() + 1000;
+    const isAutopilotEnabled = campaign.schedule?.autopilot?.enabled;
 
-    campaign.status = isFutureSchedule ? 'scheduled' : 'sending';
-    if (!isFutureSchedule && !campaign.startedAt) campaign.startedAt = now;
+    campaign.status = (isFutureSchedule || isAutopilotEnabled) ? 'scheduled' : 'sending';
+    if (campaign.status === 'sending' && !campaign.startedAt) campaign.startedAt = now;
     await campaign.save();
     
     await agenda.schedule(sendAt, 'send-campaign-emails', { campaignId: campaign._id });
@@ -466,9 +467,10 @@ router.post('/:id/resume', async (req, res, next) => {
     const now = new Date();
     const sendAt = campaign.schedule?.sendAt ? new Date(campaign.schedule.sendAt) : now;
     const isFutureSchedule = Number.isFinite(sendAt.getTime()) && sendAt.getTime() > now.getTime() + 1000;
+    const isAutopilotEnabled = campaign.schedule?.autopilot?.enabled;
 
-    campaign.status = isFutureSchedule ? 'scheduled' : 'sending';
-    if (!isFutureSchedule && !campaign.startedAt) campaign.startedAt = now;
+    campaign.status = (isFutureSchedule || isAutopilotEnabled) ? 'scheduled' : 'sending';
+    if (campaign.status === 'sending' && !campaign.startedAt) campaign.startedAt = now;
     await campaign.save();
     
     await agenda.schedule(sendAt, 'send-campaign-emails', { campaignId: campaign._id });

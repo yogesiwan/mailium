@@ -15,7 +15,10 @@ module.exports = function(agenda) {
         return done(); // Job shouldn't run
       }
 
-      if (campaign.status === 'scheduled') {
+      // Defer status update to sending until after autopilot check if autopilot is enabled
+      let isAutopilotEnabled = campaign.schedule && campaign.schedule.autopilot && campaign.schedule.autopilot.enabled;
+      
+      if (!isAutopilotEnabled && campaign.status === 'scheduled') {
         campaign.status = 'sending';
         if (!campaign.startedAt) campaign.startedAt = new Date();
         await campaign.save();
@@ -71,6 +74,13 @@ module.exports = function(agenda) {
         }
       }
 
+      // If we got here, autopilot allowed it (or not enabled)
+      if (campaign.status === 'scheduled') {
+        campaign.status = 'sending';
+        if (!campaign.startedAt) campaign.startedAt = new Date();
+        await campaign.save();
+      }
+
       // Send ONE email per job run, then reschedule itself based on delay
       // This is safer for rate limits and agenda concurrency
       const recipient = recipients[0];
@@ -121,6 +131,8 @@ module.exports = function(agenda) {
         let delayMinutes = 0;
         if (campaign.schedule && campaign.schedule.autopilot && campaign.schedule.autopilot.enabled) {
           delayMinutes = campaign.schedule.autopilot.delayMinutes || 3;
+        } else if (campaign.schedule && campaign.schedule.delayMinutes > 0) {
+          delayMinutes = campaign.schedule.delayMinutes;
         }
         
         if (delayMinutes > 0) {

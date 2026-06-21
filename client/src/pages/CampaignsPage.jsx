@@ -1,5 +1,7 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
-import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X } from 'lucide-react';
+import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X, MoreVertical, Trash2, Check } from 'lucide-react';
+import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '../components/common/DropdownMenu';
+import AlertDialog from '../components/common/AlertDialog';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../api';
@@ -12,11 +14,13 @@ const CampaignsPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [companyFilter, setCompanyFilter] = useState('All');
   const [roleFilter, setRoleFilter] = useState('All');
+  const [selectedCampaigns, setSelectedCampaigns] = useState(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null, type: 'single' });
 
   const fetchCampaigns = useCallback(async () => {
     try {
       const params = new URLSearchParams({ limit: '100' });
-      if (activeTab !== 'All') params.set('status', activeTab.toLowerCase());
       if (searchTerm.trim()) params.set('search', searchTerm.trim());
       if (companyFilter !== 'All') params.set('companyName', companyFilter);
       if (roleFilter !== 'All') params.set('roleName', roleFilter);
@@ -29,7 +33,7 @@ const CampaignsPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, companyFilter, roleFilter, searchTerm]);
+  }, [companyFilter, roleFilter, searchTerm]);
 
   useEffect(() => {
     fetchCampaigns();
@@ -95,6 +99,53 @@ const CampaignsPage = () => {
     }
   };
 
+  const confirmDelete = (id) => {
+    setDeleteConfirm({ isOpen: true, id, type: 'single' });
+  };
+
+  const confirmBulkDelete = () => {
+    if (selectedCampaigns.size === 0) return;
+    setDeleteConfirm({ isOpen: true, id: null, type: 'bulk' });
+  };
+
+  const executeDelete = async () => {
+    setIsDeleting(true);
+    try {
+      if (deleteConfirm.type === 'single') {
+        await api.delete(`/campaigns/${deleteConfirm.id}`);
+        toast.success('Campaign deleted!');
+      } else {
+        await Promise.all(Array.from(selectedCampaigns).map(id => api.delete(`/campaigns/${id}`)));
+        toast.success(`${selectedCampaigns.size} campaigns deleted!`);
+        setSelectedCampaigns(new Set());
+      }
+      await fetchCampaigns();
+    } catch {
+      toast.error('Failed to delete campaign(s)');
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirm({ isOpen: false, id: null, type: 'single' });
+    }
+  };
+
+  const toggleSelection = (campaignId) => {
+    const newSelection = new Set(selectedCampaigns);
+    if (newSelection.has(campaignId)) {
+      newSelection.delete(campaignId);
+    } else {
+      newSelection.add(campaignId);
+    }
+    setSelectedCampaigns(newSelection);
+  };
+
+  const toggleAllSelection = () => {
+    if (selectedCampaigns.size === filteredCampaigns.length && filteredCampaigns.length > 0) {
+      setSelectedCampaigns(new Set());
+    } else {
+      setSelectedCampaigns(new Set(filteredCampaigns.map(c => c._id)));
+    }
+  };
+
   const tabs = ['All', 'Draft', 'Scheduled', 'Sending', 'Paused', 'Completed'];
 
   const resetFilters = () => {
@@ -104,16 +155,21 @@ const CampaignsPage = () => {
     setActiveTab('All');
   };
 
+  const filteredCampaigns = useMemo(() => {
+    if (activeTab === 'All') return campaigns;
+    return campaigns.filter(c => c.status.toLowerCase() === activeTab.toLowerCase());
+  }, [campaigns, activeTab]);
+
   const groupedCampaigns = useMemo(() => {
     if (companyFilter === 'All') return null;
 
-    return campaigns.reduce((groups, campaign) => {
+    return filteredCampaigns.reduce((groups, campaign) => {
       const role = campaign.roleName || 'No targeted role';
       if (!groups[role]) groups[role] = [];
       groups[role].push(campaign);
       return groups;
     }, {});
-  }, [campaigns, companyFilter]);
+  }, [filteredCampaigns, companyFilter]);
 
   const roleOptions = useMemo(() => {
     if (companyFilter === 'All') return filters.roles;
@@ -142,19 +198,21 @@ const CampaignsPage = () => {
         </Link>
       </div>
 
-      <div className="flex space-x-8 mb-6 border-b border-gray-200">
-        {tabs.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`tab-item ${activeTab === tab ? 'tab-item-active' : 'tab-item-inactive'}`}
-          >
-            {tab}
-            <span className="ml-2 text-xs py-0.5 px-2 rounded-full bg-gray-100 text-gray-600 font-normal">
-              {tab === 'All' ? campaigns.length : campaigns.filter(c => c.status.toLowerCase() === tab.toLowerCase()).length}
-            </span>
-          </button>
-        ))}
+      <div className="flex justify-between items-center mb-6 border-b border-gray-200">
+        <div className="flex space-x-8">
+          {tabs.map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`tab-item ${activeTab === tab ? 'tab-item-active' : 'tab-item-inactive'}`}
+            >
+              {tab}
+              <span className="ml-2 text-xs py-0.5 px-2 rounded-full bg-gray-100 text-gray-600 font-normal">
+                {tab === 'All' ? campaigns.length : campaigns.filter(c => c.status.toLowerCase() === tab.toLowerCase()).length}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="card p-4 mb-6">
@@ -224,32 +282,103 @@ const CampaignsPage = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {(groupedCampaigns ? Object.entries(groupedCampaigns) : [['All campaigns', campaigns]]).map(([groupName, groupCampaigns]) => (
+          {(groupedCampaigns ? Object.entries(groupedCampaigns) : [['All campaigns', filteredCampaigns]]).map(([groupName, groupCampaigns]) => (
             <div key={groupName} className="space-y-3">
-              {groupedCampaigns && (
+              {groupedCampaigns ? (
                 <div className="flex items-center justify-between pt-2">
-                  <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                    {groupName}
-                  </h2>
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex items-center justify-center ml-1">
+                      <input 
+                        type="checkbox" 
+                        className={`peer appearance-none w-4 h-4 border-2 rounded transition-colors cursor-pointer ${
+                          groupCampaigns.length > 0 && groupCampaigns.every(c => selectedCampaigns.has(c._id))
+                            ? 'bg-blue-600 border-blue-600' 
+                            : 'border-gray-300 bg-white hover:border-blue-400'
+                        }`}
+                        checked={groupCampaigns.length > 0 && groupCampaigns.every(c => selectedCampaigns.has(c._id))}
+                        onChange={(e) => {
+                          const newSelection = new Set(selectedCampaigns);
+                          if (e.target.checked) {
+                            groupCampaigns.forEach(c => newSelection.add(c._id));
+                          } else {
+                            groupCampaigns.forEach(c => newSelection.delete(c._id));
+                          }
+                          setSelectedCampaigns(newSelection);
+                        }}
+                      />
+                      {groupCampaigns.length > 0 && groupCampaigns.every(c => selectedCampaigns.has(c._id)) && (
+                        <Check className="absolute text-white pointer-events-none" size={12} strokeWidth={3} />
+                      )}
+                    </div>
+                    <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+                      {groupName}
+                    </h2>
+                  </div>
                   <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
                     {groupCampaigns.length} campaign{groupCampaigns.length === 1 ? '' : 's'}
                   </span>
                 </div>
+              ) : (
+                <div className="flex items-center gap-3 px-1 pt-1 pb-2 border-b border-gray-100">
+                  <div className="relative flex items-center justify-center ml-1">
+                    <input 
+                      type="checkbox" 
+                      className={`peer appearance-none w-4 h-4 border-2 rounded transition-colors cursor-pointer ${
+                        filteredCampaigns.length > 0 && selectedCampaigns.size === filteredCampaigns.length
+                          ? 'bg-blue-600 border-blue-600' 
+                          : 'border-gray-300 bg-white hover:border-blue-400'
+                      }`}
+                      checked={filteredCampaigns.length > 0 && selectedCampaigns.size === filteredCampaigns.length}
+                      onChange={toggleAllSelection}
+                    />
+                    {filteredCampaigns.length > 0 && selectedCampaigns.size === filteredCampaigns.length && (
+                      <Check className="absolute text-white pointer-events-none" size={12} strokeWidth={3} />
+                    )}
+                  </div>
+                  <span className="text-sm font-medium text-gray-500">Select All</span>
+                </div>
               )}
+
               {groupCampaigns.map(camp => {
             const total = camp.stats?.totalRecipients || 0;
             const sent = camp.stats?.sent || 0;
             const progress = total > 0 ? Math.round((sent / total) * 100) : 0;
             
             return (
-              <div key={camp._id} className="card p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:shadow-md transition-shadow">
+              <div 
+                key={camp._id} 
+                className={`relative p-5 rounded-xl flex flex-col sm:flex-row sm:items-center gap-4 transition-all border-2 group ${
+                  selectedCampaigns.has(camp._id) 
+                    ? 'border-blue-500 bg-blue-50/20 shadow-sm' 
+                    : 'bg-white border-gray-100 hover:border-gray-200 shadow-sm hover:shadow-md'
+                }`}
+              >
                 
+                <div className="flex items-center self-start sm:self-center pt-1 sm:pt-0">
+                  <div className="relative flex items-center justify-center">
+                    <input 
+                      type="checkbox" 
+                      className={`peer appearance-none w-5 h-5 border-2 rounded transition-colors cursor-pointer ${
+                        selectedCampaigns.has(camp._id) 
+                          ? 'bg-blue-600 border-blue-600' 
+                          : 'border-gray-300 bg-white hover:border-blue-400 opacity-0 group-hover:opacity-100'
+                      }`}
+                      checked={selectedCampaigns.has(camp._id)}
+                      onChange={() => toggleSelection(camp._id)}
+                    />
+                    {selectedCampaigns.has(camp._id) && (
+                      <Check className="absolute text-white pointer-events-none" size={14} strokeWidth={3} />
+                    )}
+                  </div>
+                </div>
+
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
                     <h3 className="text-lg font-medium text-gray-900 truncate">
                       <Link to={`/campaigns/${camp._id}`} className="hover:text-blue-600 hover:underline">
                         {camp.name}
                       </Link>
+
                     </h3>
                     {getStatusBadge(camp.status)}
                   </div>
@@ -287,42 +416,48 @@ const CampaignsPage = () => {
                 </div>
 
                 <div className="flex items-center gap-2 sm:ml-auto">
-                  <button 
-                    onClick={() => handleAction(camp._id, 'duplicate')} 
-                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    title="Duplicate"
-                  >
-                    <Copy size={18} />
-                  </button>
-                  
                   {camp.status === 'draft' ? (
-                    <Link to={`/campaigns/new?id=${camp._id}`} className="btn-outline text-sm gap-2">
+                    <Link to={`/campaigns/new?id=${camp._id}`} className="btn-outline text-sm gap-2 bg-white">
                       <Edit3 size={16} /> Edit
                     </Link>
                   ) : (
-                    <Link to={`/campaigns/${camp._id}`} className="btn-outline text-sm gap-2">
+                    <Link to={`/campaigns/${camp._id}`} className="btn-outline text-sm gap-2 bg-white">
                       <BarChart2 size={16} /> Analytics
                     </Link>
                   )}
                   
-                  {camp.status === 'sending' && (
-                    <button 
-                      className="p-2 text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors" 
-                      title="Pause" 
-                      onClick={() => handleAction(camp._id, 'pause')}
+                  <DropdownMenu 
+                    align="end"
+                    trigger={
+                      <button className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ml-1">
+                        <MoreVertical size={18} />
+                      </button>
+                    }
+                  >
+                    <DropdownMenuItem onClick={() => handleAction(camp._id, 'duplicate')}>
+                      <Copy size={16} /> Duplicate
+                    </DropdownMenuItem>
+                    
+                    {camp.status === 'sending' && (
+                      <DropdownMenuItem onClick={() => handleAction(camp._id, 'pause')}>
+                        <Pause size={16} /> Pause
+                      </DropdownMenuItem>
+                    )}
+                    {camp.status === 'paused' && (
+                      <DropdownMenuItem onClick={() => handleAction(camp._id, 'resume')}>
+                        <Play size={16} /> Resume
+                      </DropdownMenuItem>
+                    )}
+
+                    <DropdownMenuSeparator />
+                    
+                    <DropdownMenuItem 
+                      destructive
+                      onClick={() => confirmDelete(camp._id)}
                     >
-                      <Pause size={18} />
-                    </button>
-                  )}
-                  {camp.status === 'paused' && (
-                    <button 
-                      className="p-2 text-emerald-600 hover:bg-emerald-50 border border-emerald-200 rounded-lg transition-colors" 
-                      title="Resume" 
-                      onClick={() => handleAction(camp._id, 'resume')}
-                    >
-                      <Play size={18} />
-                    </button>
-                  )}
+                      <Trash2 size={16} /> Delete
+                    </DropdownMenuItem>
+                  </DropdownMenu>
                 </div>
               </div>
             );
@@ -331,6 +466,42 @@ const CampaignsPage = () => {
           ))}
         </div>
       )}
+
+      {/* Floating Bulk Action Bar */}
+      {selectedCampaigns.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-6 py-3 bg-gray-900 text-white rounded-full shadow-2xl transition-all animate-in slide-in-from-bottom-8 duration-300">
+          <span className="text-sm font-medium">{selectedCampaigns.size} selected</span>
+          <div className="w-px h-4 bg-gray-600"></div>
+          <button 
+            onClick={confirmBulkDelete} 
+            disabled={isDeleting}
+            className="text-sm font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+          >
+            <Trash2 size={16} /> Delete
+          </button>
+          <button 
+            onClick={() => setSelectedCampaigns(new Set())}
+            className="text-gray-400 hover:text-white p-1 ml-2 transition-colors rounded-full hover:bg-gray-800"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => !isDeleting && setDeleteConfirm({ isOpen: false, id: null, type: 'single' })}
+        onConfirm={executeDelete}
+        title={deleteConfirm.type === 'single' ? "Delete Campaign" : "Delete Selected Campaigns"}
+        description={
+          deleteConfirm.type === 'single'
+            ? "Are you sure you want to delete this campaign? This action cannot be undone and all associated recipients and tracking data will be permanently removed."
+            : `Are you sure you want to delete ${selectedCampaigns.size} campaigns? This action cannot be undone and will permanently remove all associated data.`
+        }
+        confirmText="Delete"
+        isLoading={isDeleting}
+      />
     </div>
   );
 };
