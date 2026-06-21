@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #3b82f6; /* Blue 500 */
+  --color-primary-hover: #2563eb; /* Blue 600 */
+  --color-primary-light: #eff6ff; /* Blue 50 */
+  --color-bg-main: #f9fafb; /* Gray 50 */
+  --color-bg-card: #ffffff;
+  --color-text-main: #111827; /* Gray 900 */
+  --color-text-secondary: #6b7280; /* Gray 500 */
+  --color-border-main: #e5e7eb; /* Gray 200 */
+}
+
+@layer base {
+  body {
+    background-color: var(--color-bg-main);
+    color: var(--color-text-main);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer utilities {
+  .btn-primary {
+    @apply bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors inline-flex items-center justify-center;
+  }
+  
+  .btn-outline {
+    @apply bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors inline-flex items-center justify-center;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden;
+  }
+
+  .stat-card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col;
+  }
+
+  /* Mailmeteor-like tabs */
+  .tab-item {
+    @apply px-4 py-2 text-sm font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap;
+  }
+  
+  .tab-item-active {
+    @apply border-blue-600 text-blue-600;
+  }
+  
+  .tab-item-inactive {
+    @apply border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300;
+  }
+
+  /* Layout */
+  .app-container {
+    @apply flex h-screen overflow-hidden bg-gray-50;
+  }
+
+  .main-content-wrapper {
+    @apply flex-1 flex flex-col overflow-hidden;
+  }
+
+  .main-content {
+    @apply flex-1 overflow-y-auto overflow-x-hidden;
+  }
+}
