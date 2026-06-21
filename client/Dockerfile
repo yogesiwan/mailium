@@ -3,10 +3,10 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN chmod 666 /dev/null && npm ci
+RUN npm ci
 
 COPY . .
-RUN chmod 666 /dev/null && npm run build
+RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 
