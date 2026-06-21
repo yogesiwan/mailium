@@ -261,6 +261,24 @@ router.put('/:id', async (req, res, next) => {
       }
     );
 
+    // Handle excluded recipients:
+    // 1. Mark newly excluded recipients as 'excluded'
+    if (campaign.excludedRecipients && campaign.excludedRecipients.length > 0) {
+      await Recipient.updateMany(
+        { campaignId: campaign._id, email: { $in: campaign.excludedRecipients }, status: { $in: ['pending', 'queued'] } },
+        { $set: { status: 'excluded' } }
+      );
+    }
+    // 2. Mark previously excluded recipients that are no longer in the list back to 'pending'
+    await Recipient.updateMany(
+      { 
+        campaignId: campaign._id, 
+        status: 'excluded', 
+        email: { $nin: campaign.excludedRecipients || [] } 
+      },
+      { $set: { status: 'pending' } }
+    );
+
     res.json({ success: true, campaign });
   } catch (err) {
     next(err);

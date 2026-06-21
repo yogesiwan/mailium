@@ -25,10 +25,16 @@ module.exports = function(agenda) {
       }
 
       // Find pending recipients
-      const recipients = await Recipient.find({
+      const query = {
         campaignId,
         status: { $in: ['pending', 'queued'] }
-      });
+      };
+
+      if (campaign.excludedRecipients && campaign.excludedRecipients.length > 0) {
+        query.email = { $nin: campaign.excludedRecipients };
+      }
+
+      const recipients = await Recipient.find(query);
 
       if (recipients.length === 0) {
         campaign.status = 'completed';
