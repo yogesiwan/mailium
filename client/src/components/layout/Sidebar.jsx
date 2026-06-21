@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Mail, LayoutTemplate, BarChart2, Settings, ChevronLeft, ChevronRight, Send } from 'lucide-react';
 

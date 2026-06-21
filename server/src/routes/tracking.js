@@ -101,8 +101,8 @@ const handleTrackingEvent = async (trackingId, type, req, additionalData = {}) =
 router.get('/:trackingId/pixel.png', async (req, res) => {
   const { trackingId } = req.params;
   
-  // Record open event in background
-  handleTrackingEvent(trackingId, 'open', req);
+  // Record open event before responding so the event is not dropped under process churn.
+  await handleTrackingEvent(trackingId, 'open', req);
 
   // Send 1x1 transparent PNG
   const imgBuffer = getPixelImage();
@@ -126,8 +126,7 @@ router.get('/:trackingId/click', async (req, res) => {
     return res.status(400).send('Invalid URL');
   }
 
-  // Record click event in background
-  handleTrackingEvent(trackingId, 'click', req, { url: originalUrl });
+  await handleTrackingEvent(trackingId, 'click', req, { url: originalUrl });
 
   // Redirect to original URL
   res.redirect(302, originalUrl);

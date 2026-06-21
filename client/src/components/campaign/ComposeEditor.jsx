@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Underline } from '@tiptap/extension-underline';
@@ -117,10 +117,19 @@ const CustomEnter = Extension.create({
   },
 });
 
-const ComposeEditor = ({ value, onChange, availablePlaceholders = [] }) => {
+const ComposeEditor = ({ value, onChange, availablePlaceholders = [], isReadOnly = false }) => {
+  const valueRef = useRef(value || '');
+
+  useEffect(() => {
+    valueRef.current = value || '';
+  }, [value]);
+
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        link: false,
+        underline: false,
+      }),
       Underline,
       TextAlign.configure({
         types: ['heading', 'paragraph'],
@@ -132,9 +141,11 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [] }) => {
       Color,
       CustomEnter,
     ],
-    content: value,
+    content: value || '',
+    editable: !isReadOnly,
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      const nextHtml = editor.getHTML();
+      if (onChange && nextHtml !== valueRef.current) onChange(nextHtml);
     },
     editorProps: {
       attributes: {
@@ -143,6 +154,20 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [] }) => {
     }
   });
 
+  useEffect(() => {
+    if (editor && value !== undefined) {
+      if (editor.getHTML() !== value) {
+        editor.commands.setContent(value || '', { emitUpdate: false });
+      }
+    }
+  }, [editor, value]);
+
+  useEffect(() => {
+    if (editor) {
+      editor.setEditable(!isReadOnly);
+    }
+  }, [editor, isReadOnly]);
+
   const insertPlaceholder = (placeholder) => {
     if (editor) {
       editor.chain().focus().insertContent(`{{${placeholder}}}`).run();
@@ -150,8 +175,8 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [] }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-b-xl overflow-hidden">
-      <MenuBar editor={editor} />
+    <div className="flex flex-col h-full min-h-0 bg-white rounded-b-xl overflow-hidden">
+      {!isReadOnly && <MenuBar editor={editor} />}
       {availablePlaceholders.length > 0 && (
         <div className="px-4 py-2 border-b border-gray-100 flex gap-2 items-center bg-blue-50/30 overflow-x-auto">
           <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Insert variable:</span>
@@ -166,8 +191,8 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [] }) => {
           ))}
         </div>
       )}
-      <div className="flex-1 overflow-y-auto cursor-text">
-        <EditorContent editor={editor} className="h-full" />
+      <div className="flex-1 min-h-0 overflow-y-auto cursor-text">
+        <EditorContent editor={editor} className="min-h-full" />
       </div>
     </div>
   );

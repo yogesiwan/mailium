@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+
+node_modules/
+dist/
+build/
+coverage/
+*.log
+.DS_Store
+
+server/.env
+server/uploads/
+client/dist/
+
+Docs/myCreds.md
+

@@ -1,4 +1,3 @@
-import React from 'react';
 import { X } from 'lucide-react';
 
 const Modal = ({ isOpen, onClose, title, children, footer, size = 'md' }) => {

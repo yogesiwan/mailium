@@ -34,6 +34,7 @@ const campaignSchema = new mongoose.Schema({
 
   schedule: {
     sendAt: Date,
+    timezone: { type: String, default: "Asia/Kolkata" },
     autopilot: {
       enabled: { type: Boolean, default: false },
       days: {
@@ -64,7 +65,31 @@ const campaignSchema = new mongoose.Schema({
     attachments: [{ filename: String, originalName: String, path: String, mimetype: String, size: Number }],
     delayDays: { type: Number, default: 3 },
     onlyIfNoReply: { type: Boolean, default: true },
-    status: { type: String, enum: ["pending", "sending", "completed"], default: "pending" }
+    inSameThread: { type: Boolean, default: true },
+    schedule: {
+      sendAt: Date,
+      timezone: { type: String, default: "Asia/Kolkata" },
+      autopilot: {
+        enabled: { type: Boolean, default: false },
+        days: {
+          monday: { type: Boolean, default: true },
+          tuesday: { type: Boolean, default: true },
+          wednesday: { type: Boolean, default: true },
+          thursday: { type: Boolean, default: true },
+          friday: { type: Boolean, default: true },
+          saturday: { type: Boolean, default: false },
+          sunday: { type: Boolean, default: false }
+        },
+        startTime: { type: String, default: "09:00" },
+        endTime: { type: String, default: "17:00" },
+        timezone: { type: String, default: "Asia/Kolkata" }
+      }
+    },
+    status: { type: String, enum: ["draft", "pending", "scheduled", "sending", "completed", "cancelled"], default: "draft" },
+    scheduledAt: Date,
+    cancelledAt: Date,
+    completedAt: Date,
+    excludedRecipients: [{ type: String }] // Store emails of excluded recipients
   }],
 
   stats: {

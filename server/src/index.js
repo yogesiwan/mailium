@@ -11,9 +11,12 @@ const errorHandler = require('./middleware/errorHandler');
 connectDB();
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -34,6 +37,10 @@ app.use('/t', require('./routes/tracking'));
 // Basic route
 app.get('/', (req, res) => {
   res.send('Mailium API is running...');
+});
+
+app.get('/health', (req, res) => {
+  res.json({ success: true, status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Error Handler

@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
+import { getBrowserTimezone } from '../utils/timezones';
 
 const DraftContext = createContext();
 
@@ -12,6 +13,7 @@ const initialCampaignState = {
     trackEmails: true
   },
   schedule: {
+    timezone: getBrowserTimezone(),
     autopilot: {
       enabled: false,
       days: { monday: true, tuesday: true, wednesday: true, thursday: true, friday: true, saturday: false, sunday: false },
@@ -19,7 +21,7 @@ const initialCampaignState = {
       endTime: '17:00',
       maxPerDay: 300,
       delayMinutes: 3,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      timezone: getBrowserTimezone()
     }
   }
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Modal from '../common/Modal';
 import { Smartphone, Monitor, ChevronLeft, ChevronRight, Paperclip, Send } from 'lucide-react';
 import toast from 'react-hot-toast';

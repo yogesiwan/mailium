@@ -1,18 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useCallback, useState, useEffect, useMemo } from 'react';
+import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../api';
 
 const CampaignsPage = () => {
   const [campaigns, setCampaigns] = useState([]);
+  const [filters, setFilters] = useState({ companies: [], roles: [] });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
-  const navigate = useNavigate();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [companyFilter, setCompanyFilter] = useState('All');
+  const [roleFilter, setRoleFilter] = useState('All');
 
-  const fetchCampaigns = async () => {
+  const fetchCampaigns = useCallback(async () => {
     try {
-      const res = await api.get('/campaigns?limit=50'); // Fetch all for now to filter client-side, or we can use backend filter
+      const params = new URLSearchParams({ limit: '100' });
+      if (activeTab !== 'All') params.set('status', activeTab.toLowerCase());
+      if (searchTerm.trim()) params.set('search', searchTerm.trim());
+      if (companyFilter !== 'All') params.set('companyName', companyFilter);
+      if (roleFilter !== 'All') params.set('roleName', roleFilter);
+
+      const res = await api.get(`/campaigns?${params.toString()}`);
       setCampaigns(res.data.campaigns);
     } catch (err) {
       toast.error('Failed to load campaigns');
@@ -20,10 +29,26 @@ const CampaignsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, companyFilter, roleFilter, searchTerm]);
 
   useEffect(() => {
     fetchCampaigns();
+  }, [fetchCampaigns]);
+
+  useEffect(() => {
+    const fetchFilters = async () => {
+      try {
+        const res = await api.get('/campaigns/filters');
+        setFilters({
+          companies: res.data.companies || [],
+          roles: res.data.roles || []
+        });
+      } catch (err) {
+        console.error('Failed to load campaign filters:', err);
+      }
+    };
+
+    fetchFilters();
   }, []);
 
   const getStatusIcon = (status) => {
@@ -64,17 +89,41 @@ const CampaignsPage = () => {
         await api.post(`/campaigns/${campaignId}/${action}`);
         toast.success(`Campaign ${action}d!`);
       }
-      fetchCampaigns();
-    } catch (err) {
+      await fetchCampaigns();
+    } catch {
       toast.error(`Failed to ${action} campaign`);
     }
   };
 
-  const tabs = ['All', 'Draft', 'Sending', 'Paused', 'Completed'];
-  
-  const filteredCampaigns = activeTab === 'All' 
-    ? campaigns 
-    : campaigns.filter(c => c.status.toLowerCase() === activeTab.toLowerCase());
+  const tabs = ['All', 'Draft', 'Scheduled', 'Sending', 'Paused', 'Completed'];
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setCompanyFilter('All');
+    setRoleFilter('All');
+    setActiveTab('All');
+  };
+
+  const groupedCampaigns = useMemo(() => {
+    if (companyFilter === 'All') return null;
+
+    return campaigns.reduce((groups, campaign) => {
+      const role = campaign.roleName || 'No targeted role';
+      if (!groups[role]) groups[role] = [];
+      groups[role].push(campaign);
+      return groups;
+    }, {});
+  }, [campaigns, companyFilter]);
+
+  const roleOptions = useMemo(() => {
+    if (companyFilter === 'All') return filters.roles;
+    const rolesForCompany = campaigns
+      .map(campaign => campaign.roleName)
+      .filter(Boolean);
+    return Array.from(new Set([...filters.roles, ...rolesForCompany])).sort((a, b) => a.localeCompare(b));
+  }, [filters.roles, campaigns, companyFilter]);
+
+  const hasActiveFilters = searchTerm || companyFilter !== 'All' || roleFilter !== 'All' || activeTab !== 'All';
 
   if (loading) {
     return (
@@ -108,20 +157,86 @@ const CampaignsPage = () => {
         ))}
       </div>
 
-      {filteredCampaigns.length === 0 ? (
+      <div className="card p-4 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px_220px_auto] gap-3">
+          <div className="relative">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              className="w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Search campaigns, companies, roles, subjects..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <label className="relative">
+            <Building2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <select
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              value={companyFilter}
+              onChange={(e) => {
+                setCompanyFilter(e.target.value);
+                setRoleFilter('All');
+              }}
+            >
+              <option value="All">All companies</option>
+              {filters.companies.map(company => (
+                <option key={company} value={company}>{company}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="relative">
+            <UserRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <select
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+            >
+              <option value="All">All targeted roles</option>
+              {roleOptions.map(role => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+            </select>
+          </label>
+
+          {hasActiveFilters && (
+            <button className="btn-outline text-sm gap-2" onClick={resetFilters}>
+              <X size={16} /> Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {campaigns.length === 0 ? (
         <div className="card p-12 text-center border-dashed border-2">
           <div className="mx-auto w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
             <Mail size={32} className="text-gray-400" />
           </div>
           <h3 className="text-lg font-medium text-gray-900 mb-1">No campaigns found</h3>
-          <p className="text-gray-500 mb-6">You don't have any {activeTab !== 'All' ? activeTab.toLowerCase() : ''} campaigns yet.</p>
-          {activeTab === 'All' && (
+          <p className="text-gray-500 mb-6">
+            {hasActiveFilters ? 'No campaigns match the selected filters.' : `You don't have any ${activeTab !== 'All' ? activeTab.toLowerCase() : ''} campaigns yet.`}
+          </p>
+          {!hasActiveFilters && activeTab === 'All' && (
             <Link to="/campaigns/new" className="btn-primary">Create Campaign</Link>
           )}
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredCampaigns.map(camp => {
+          {(groupedCampaigns ? Object.entries(groupedCampaigns) : [['All campaigns', campaigns]]).map(([groupName, groupCampaigns]) => (
+            <div key={groupName} className="space-y-3">
+              {groupedCampaigns && (
+                <div className="flex items-center justify-between pt-2">
+                  <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+                    {groupName}
+                  </h2>
+                  <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+                    {groupCampaigns.length} campaign{groupCampaigns.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+              )}
+              {groupCampaigns.map(camp => {
             const total = camp.stats?.totalRecipients || 0;
             const sent = camp.stats?.sent || 0;
             const progress = total > 0 ? Math.round((sent / total) * 100) : 0;
@@ -141,8 +256,20 @@ const CampaignsPage = () => {
                   <div className="text-sm text-gray-500 truncate mb-1">
                     Subject: {camp.subject || <span className="italic">No subject</span>}
                   </div>
-                  <div className="text-xs text-gray-400">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                    {camp.companyName && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded">
+                        <Building2 size={12} /> {camp.companyName}
+                      </span>
+                    )}
+                    {camp.roleName && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded">
+                        <UserRound size={12} /> {camp.roleName}
+                      </span>
+                    )}
+                    <span>
                     Created on {new Date(camp.createdAt).toLocaleDateString()}
+                    </span>
                   </div>
                 </div>
 
@@ -199,7 +326,9 @@ const CampaignsPage = () => {
                 </div>
               </div>
             );
-          })}
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>

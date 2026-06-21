@@ -2,6 +2,36 @@ const express = require('express');
 const router = express.Router();
 const { google } = require('googleapis');
 const Settings = require('../models/Settings');
+const { resolveTimezone } = require('../utils/timezone');
+
+const getServerTimezone = () => resolveTimezone(process.env.TZ);
+const trimTrailingSlash = (value = '') => value.replace(/\/+$/, '');
+const getTrackingBaseUrl = () => trimTrailingSlash(process.env.TRACKING_BASE_URL || 'http://localhost:5001');
+const getFrontendUrl = () => trimTrailingSlash(process.env.FRONTEND_URL || process.env.TRACKING_BASE_URL || 'http://localhost:5173');
+const getOAuthCallbackUrl = () => `${getTrackingBaseUrl()}/api/settings/oauth/callback`;
+
+const toPublicSettings = (settings) => {
+  const publicSettings = settings.toObject();
+  if (publicSettings.google) {
+    publicSettings.google.isConfigured = !!publicSettings.google.refreshToken;
+    publicSettings.google.connectedAt = publicSettings.google.tokenExpiry || null;
+    delete publicSettings.google.refreshToken;
+    delete publicSettings.google.accessToken;
+    delete publicSettings.google.clientSecret;
+  }
+
+  publicSettings.server = {
+    now: new Date().toISOString(),
+    timezone: getServerTimezone()
+  };
+
+  publicSettings.defaults = {
+    ...publicSettings.defaults,
+    timezone: resolveTimezone(publicSettings.defaults?.timezone)
+  };
+
+  return publicSettings;
+};
 
 // @route   GET /api/settings
 // @desc    Get current settings
@@ -11,17 +41,8 @@ router.get('/', async (req, res, next) => {
     if (!settings) {
       settings = await Settings.create({});
     }
-    
-    // Don't send tokens to frontend
-    const publicSettings = settings.toObject();
-    if (publicSettings.google) {
-      publicSettings.google.isConfigured = !!publicSettings.google.refreshToken;
-      delete publicSettings.google.refreshToken;
-      delete publicSettings.google.accessToken;
-      delete publicSettings.google.clientSecret;
-    }
 
-    res.json({ success: true, settings: publicSettings });
+    res.json({ success: true, settings: toPublicSettings(settings) });
   } catch (err) {
     next(err);
   }
@@ -38,20 +59,17 @@ router.put('/', async (req, res, next) => {
 
     // Only allow updating specific fields
     if (req.body.defaults) {
-      settings.defaults = { ...settings.defaults, ...req.body.defaults };
+      const existingDefaults = settings.defaults?.toObject ? settings.defaults.toObject() : (settings.defaults || {});
+      settings.defaults = {
+        ...existingDefaults,
+        ...req.body.defaults,
+        timezone: resolveTimezone(req.body.defaults.timezone || settings.defaults?.timezone)
+      };
     }
 
     await settings.save();
-    
-    const publicSettings = settings.toObject();
-    if (publicSettings.google) {
-      publicSettings.google.isConfigured = !!publicSettings.google.refreshToken;
-      delete publicSettings.google.refreshToken;
-      delete publicSettings.google.accessToken;
-      delete publicSettings.google.clientSecret;
-    }
 
-    res.json({ success: true, settings: publicSettings });
+    res.json({ success: true, settings: toPublicSettings(settings) });
   } catch (err) {
     next(err);
   }
@@ -64,7 +82,7 @@ router.get('/oauth/url', async (req, res, next) => {
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      process.env.TRACKING_BASE_URL + '/api/settings/oauth/callback'
+      getOAuthCallbackUrl()
     );
 
     const scopes = [
@@ -98,7 +116,7 @@ router.get('/oauth/callback', async (req, res, next) => {
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      process.env.TRACKING_BASE_URL + '/api/settings/oauth/callback'
+      getOAuthCallbackUrl()
     );
 
     const { tokens } = await oauth2Client.getToken(code);
@@ -126,10 +144,10 @@ router.get('/oauth/callback', async (req, res, next) => {
     await Settings.findOneAndUpdate({}, { $set: updateData }, { upsert: true });
 
     // Redirect back to frontend
-    res.redirect('http://localhost:5173/settings?oauth=success');
+    res.redirect(`${getFrontendUrl()}/settings?oauth=success`);
   } catch (err) {
     console.error('OAuth callback error:', err);
-    res.redirect('http://localhost:5173/settings?oauth=error');
+    res.redirect(`${getFrontendUrl()}/settings?oauth=error`);
   }
 });
 

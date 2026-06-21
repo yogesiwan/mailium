@@ -2,9 +2,97 @@ const express = require('express');
 const router = express.Router();
 const Campaign = require('../models/Campaign');
 const Recipient = require('../models/Recipient');
+const Settings = require('../models/Settings');
 const agenda = require('../config/agenda');
 const { sendTestEmail } = require('../services/emailService');
 const { replacePlaceholders } = require('../services/templateEngine');
+const { syncReplies } = require('../services/replySyncService');
+const { resolveTimezone } = require('../utils/timezone');
+
+const ACTIVE_FOLLOW_UP_STATUSES = ['pending', 'scheduled', 'sending'];
+
+const normalizeCampaignPayload = async (payload = {}) => {
+  const settings = await Settings.findOne();
+  const defaultTimezone = resolveTimezone(settings?.defaults?.timezone || payload.schedule?.autopilot?.timezone);
+  const schedule = payload.schedule || {};
+  const autopilot = schedule.autopilot || {};
+
+  return {
+    ...payload,
+    name: payload.name?.trim() || 'New Campaign',
+    companyName: payload.companyName?.trim() || '',
+    roleName: payload.roleName?.trim() || '',
+    from: {
+      name: payload.from?.name || settings?.defaults?.fromName || 'Yogesh Siwan',
+      email: payload.from?.email || settings?.defaults?.fromEmail || process.env.GOOGLE_USER_EMAIL
+    },
+    schedule: {
+      ...schedule,
+      timezone: resolveTimezone(schedule.timezone || autopilot.timezone || defaultTimezone),
+      autopilot: {
+        ...autopilot,
+        timezone: resolveTimezone(autopilot.timezone || schedule.timezone || defaultTimezone)
+      }
+    },
+    followUps: (payload.followUps || []).map((followUp, index) => ({
+      ...followUp,
+      order: followUp.order || index + 1,
+      schedule: followUp.schedule
+        ? {
+            ...followUp.schedule,
+            timezone: resolveTimezone(followUp.schedule.timezone || followUp.schedule.autopilot?.timezone || defaultTimezone),
+            autopilot: {
+              ...(followUp.schedule.autopilot || {}),
+              timezone: resolveTimezone(followUp.schedule.autopilot?.timezone || followUp.schedule.timezone || defaultTimezone)
+            }
+          }
+        : followUp.schedule
+    }))
+  };
+};
+
+const isBlankHtml = (value = '') => {
+  const text = String(value)
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+  return text.length === 0;
+};
+
+const hasActiveFollowUps = (campaign) => (
+  (campaign.followUps || []).some(followUp => ACTIVE_FOLLOW_UP_STATUSES.includes(followUp.status))
+);
+
+const updateCampaignStatusAfterFollowUpChange = async (campaign) => {
+  if (hasActiveFollowUps(campaign)) {
+    campaign.status = 'scheduled';
+    campaign.completedAt = undefined;
+    return;
+  }
+
+  if (campaign.status === 'scheduled') {
+    const pendingRecipients = await Recipient.countDocuments({
+      campaignId: campaign._id,
+      status: { $in: ['pending', 'queued'] }
+    });
+
+    if (pendingRecipients === 0) {
+      campaign.status = 'completed';
+      if (!campaign.completedAt) campaign.completedAt = new Date();
+    }
+  }
+};
+
+const getFollowUpWakeTime = (followUps = []) => {
+  const now = new Date();
+  const futureSendAts = followUps
+    .filter(followUp => ACTIVE_FOLLOW_UP_STATUSES.includes(followUp.status))
+    .map(followUp => followUp.schedule?.sendAt ? new Date(followUp.schedule.sendAt) : null)
+    .filter(date => date && Number.isFinite(date.getTime()) && date > now);
+
+  if (futureSendAts.length === 0) return now;
+  return new Date(Math.min(...futureSendAts.map(date => date.getTime())));
+};
 
 // @route   GET /api/campaigns
 // @desc    Get all campaigns
@@ -14,13 +102,19 @@ router.get('/', async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10;
     const status = req.query.status;
     const search = req.query.search;
+    const companyName = req.query.companyName;
+    const roleName = req.query.roleName;
 
     let query = {};
     if (status && status !== 'All') query.status = status;
+    if (companyName && companyName !== 'All') query.companyName = companyName;
+    if (roleName && roleName !== 'All') query.roleName = roleName;
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
-        { companyName: { $regex: search, $options: 'i' } }
+        { companyName: { $regex: search, $options: 'i' } },
+        { roleName: { $regex: search, $options: 'i' } },
+        { subject: { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -37,6 +131,36 @@ router.get('/', async (req, res, next) => {
       total,
       page,
       pages: Math.ceil(total / limit)
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   GET /api/campaigns/filters
+// @desc    Get available company and targeted-role filters
+router.get('/filters', async (req, res, next) => {
+  try {
+    const [companies, roles, roleGroups] = await Promise.all([
+      Campaign.distinct('companyName', { companyName: { $exists: true, $ne: '' } }),
+      Campaign.distinct('roleName', { roleName: { $exists: true, $ne: '' } }),
+      Campaign.aggregate([
+        { $match: { companyName: { $exists: true, $ne: '' } } },
+        {
+          $group: {
+            _id: { companyName: '$companyName', roleName: '$roleName' },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { '_id.companyName': 1, '_id.roleName': 1 } }
+      ])
+    ]);
+
+    res.json({
+      success: true,
+      companies: companies.sort((a, b) => a.localeCompare(b)),
+      roles: roles.sort((a, b) => a.localeCompare(b)),
+      roleGroups
     });
   } catch (err) {
     next(err);
@@ -63,13 +187,25 @@ router.get('/:id/recipients', async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
+    const status = req.query.status;
+    const search = req.query.search;
 
-    const recipients = await Recipient.find({ campaignId: req.params.id })
+    const query = { campaignId: req.params.id };
+    if (status && status !== 'All') query.status = status;
+    if (search) {
+      query.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { 'data.name': { $regex: search, $options: 'i' } },
+        { 'data.Name': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const recipients = await Recipient.find(query)
       .sort({ _id: 1 })
       .skip((page - 1) * limit)
       .limit(limit);
 
-    const total = await Recipient.countDocuments({ campaignId: req.params.id });
+    const total = await Recipient.countDocuments(query);
 
     res.json({
       success: true,
@@ -87,7 +223,8 @@ router.get('/:id/recipients', async (req, res, next) => {
 // @desc    Create new campaign
 router.post('/', async (req, res, next) => {
   try {
-    const campaign = await Campaign.create(req.body);
+    const campaignPayload = await normalizeCampaignPayload(req.body);
+    const campaign = await Campaign.create(campaignPayload);
     res.status(201).json({ success: true, campaign });
   } catch (err) {
     next(err);
@@ -98,13 +235,128 @@ router.post('/', async (req, res, next) => {
 // @desc    Update campaign
 router.put('/:id', async (req, res, next) => {
   try {
-    const campaign = await Campaign.findByIdAndUpdate(req.params.id, req.body, {
+    const existingCampaign = await Campaign.findById(req.params.id);
+    if (!existingCampaign) {
+      return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+
+    const campaignPayload = await normalizeCampaignPayload({
+      ...existingCampaign.toObject(),
+      ...req.body
+    });
+    delete campaignPayload._id;
+    delete campaignPayload.createdAt;
+    delete campaignPayload.updatedAt;
+    delete campaignPayload.__v;
+
+    const campaign = await Campaign.findByIdAndUpdate(req.params.id, campaignPayload, {
       new: true,
       runValidators: true
     });
+
+    res.json({ success: true, campaign });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   POST /api/campaigns/:id/follow-ups/schedule
+// @desc    Confirm and schedule draft/edited follow-ups for an existing campaign
+router.post('/:id/follow-ups/schedule', async (req, res, next) => {
+  try {
+    const existingCampaign = await Campaign.findById(req.params.id);
+    if (!existingCampaign) {
+      return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+
+    const campaignPayload = await normalizeCampaignPayload({
+      ...existingCampaign.toObject(),
+      followUps: req.body.followUps || existingCampaign.followUps || []
+    });
+
+    const now = new Date();
+    let scheduledCount = 0;
+
+    campaignPayload.followUps = (campaignPayload.followUps || []).map((followUp, index) => {
+      const status = followUp.status || 'draft';
+      const shouldSchedule = ['draft', 'pending', 'scheduled'].includes(status);
+
+      if (!shouldSchedule) {
+        return { ...followUp, order: index + 1 };
+      }
+
+      if (isBlankHtml(followUp.body)) {
+        const error = new Error(`Follow-up ${index + 1} body is required before scheduling`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      if (followUp.inSameThread === false && !followUp.subject?.trim()) {
+        const error = new Error(`Follow-up ${index + 1} subject is required when it is not in the same thread`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      scheduledCount += 1;
+
+      return {
+        ...followUp,
+        order: index + 1,
+        subject: followUp.inSameThread !== false ? existingCampaign.subject : followUp.subject,
+        status: 'scheduled',
+        scheduledAt: followUp.scheduledAt || now,
+        cancelledAt: undefined,
+        completedAt: undefined
+      };
+    });
+
+    if (scheduledCount === 0) {
+      return res.status(400).json({ success: false, error: 'No draft or scheduled follow-ups to schedule' });
+    }
+
+    delete campaignPayload._id;
+    delete campaignPayload.createdAt;
+    delete campaignPayload.updatedAt;
+    delete campaignPayload.__v;
+
+    existingCampaign.set(campaignPayload);
+    existingCampaign.status = 'scheduled';
+    existingCampaign.completedAt = undefined;
+    await existingCampaign.save();
+
+    await agenda.schedule(getFollowUpWakeTime(existingCampaign.followUps), 'send-follow-ups', { campaignId: existingCampaign._id });
+
+    res.json({ success: true, campaign: existingCampaign, scheduledCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   POST /api/campaigns/:id/follow-ups/:order/cancel
+// @desc    Cancel a scheduled follow-up without deleting it from the timeline
+router.post('/:id/follow-ups/:order/cancel', async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findById(req.params.id);
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
+
+    const order = parseInt(req.params.order, 10);
+    const followUp = campaign.followUps.find(item => item.order === order);
+    if (!followUp) {
+      return res.status(404).json({ success: false, error: 'Follow-up not found' });
+    }
+
+    if (!['draft', 'pending', 'scheduled'].includes(followUp.status || 'draft')) {
+      return res.status(400).json({ success: false, error: 'Only draft or scheduled follow-ups can be cancelled' });
+    }
+
+    followUp.status = 'cancelled';
+    followUp.cancelledAt = new Date();
+    followUp.completedAt = undefined;
+    await updateCampaignStatusAfterFollowUpChange(campaign);
+    await campaign.save();
+
     res.json({ success: true, campaign });
   } catch (err) {
     next(err);
@@ -142,21 +394,40 @@ router.post('/:id/send', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
 
-    if (campaign.status === 'sending' || campaign.status === 'completed') {
-      return res.status(400).json({ success: false, error: 'Campaign is already sending or completed' });
+    if (['scheduled', 'sending', 'completed'].includes(campaign.status)) {
+      return res.status(400).json({ success: false, error: 'Campaign is already scheduled, sending, or completed' });
     }
-
-    campaign.status = 'sending';
-    if (!campaign.startedAt) campaign.startedAt = new Date();
-    await campaign.save();
 
     // Schedule Agenda job
     // If schedule.sendAt is in the future, schedule it then, otherwise now
-    const sendAt = campaign.schedule?.sendAt ? new Date(campaign.schedule.sendAt) : new Date();
+    const now = new Date();
+    const sendAt = campaign.schedule?.sendAt ? new Date(campaign.schedule.sendAt) : now;
+    const isFutureSchedule = Number.isFinite(sendAt.getTime()) && sendAt.getTime() > now.getTime() + 1000;
+
+    campaign.status = isFutureSchedule ? 'scheduled' : 'sending';
+    if (!isFutureSchedule && !campaign.startedAt) campaign.startedAt = now;
+    await campaign.save();
     
     await agenda.schedule(sendAt, 'send-campaign-emails', { campaignId: campaign._id });
 
     res.json({ success: true, campaign });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   POST /api/campaigns/:id/sync-replies
+// @desc    Manually sync Gmail replies for a campaign
+router.post('/:id/sync-replies', async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findById(req.params.id);
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+
+    const result = await syncReplies({ campaignId: campaign._id, limit: 250 });
+    const updatedCampaign = await Campaign.findById(campaign._id);
+    res.json({ success: true, result, campaign: updatedCampaign });
   } catch (err) {
     next(err);
   }
@@ -167,8 +438,8 @@ router.post('/:id/send', async (req, res, next) => {
 router.post('/:id/pause', async (req, res, next) => {
   try {
     const campaign = await Campaign.findById(req.params.id);
-    if (!campaign || campaign.status !== 'sending') {
-      return res.status(400).json({ success: false, error: 'Campaign is not currently sending' });
+    if (!campaign || !['scheduled', 'sending'].includes(campaign.status)) {
+      return res.status(400).json({ success: false, error: 'Campaign is not currently scheduled or sending' });
     }
 
     campaign.status = 'paused';
@@ -192,10 +463,15 @@ router.post('/:id/resume', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Campaign is not paused' });
     }
 
-    campaign.status = 'sending';
+    const now = new Date();
+    const sendAt = campaign.schedule?.sendAt ? new Date(campaign.schedule.sendAt) : now;
+    const isFutureSchedule = Number.isFinite(sendAt.getTime()) && sendAt.getTime() > now.getTime() + 1000;
+
+    campaign.status = isFutureSchedule ? 'scheduled' : 'sending';
+    if (!isFutureSchedule && !campaign.startedAt) campaign.startedAt = now;
     await campaign.save();
     
-    await agenda.now('send-campaign-emails', { campaignId: campaign._id });
+    await agenda.schedule(sendAt, 'send-campaign-emails', { campaignId: campaign._id });
 
     res.json({ success: true, campaign });
   } catch (err) {
@@ -294,6 +570,14 @@ router.post('/:id/duplicate', async (req, res, next) => {
     newCampaignData.stats = { totalRecipients: 0, sent: 0, opened: 0, clicked: 0, replied: 0, bounced: 0, failed: 0 };
     newCampaignData.startedAt = undefined;
     newCampaignData.completedAt = undefined;
+    newCampaignData.followUps = (newCampaignData.followUps || []).map((followUp, index) => ({
+      ...followUp,
+      order: index + 1,
+      status: 'draft',
+      scheduledAt: undefined,
+      cancelledAt: undefined,
+      completedAt: undefined
+    }));
 
     const newCampaign = await Campaign.create(newCampaignData);
     res.json({ success: true, campaign: newCampaign });

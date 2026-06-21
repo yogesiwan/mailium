@@ -1,55 +1,123 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import api from '../api';
-import { Mail, Eye, MousePointerClick, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, Trash2, CheckCircle2, Clock } from 'lucide-react';
+import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
+import FollowUpEditor from '../components/campaign/FollowUpEditor';
+import ComposeEditor from '../components/campaign/ComposeEditor';
+import Modal from '../components/common/Modal';
+import { formatDateTime } from '../utils/timezones';
+
+const ACTIVE_DRAFT_FOLLOW_UP_STATUSES = ['draft', 'pending'];
+const CONFIRMABLE_FOLLOW_UP_STATUSES = ['draft', 'pending', 'scheduled'];
+const LOCKED_FOLLOW_UP_STATUSES = ['sending', 'completed', 'cancelled'];
+
+const isBlankHtml = (value = '') => {
+  const text = String(value)
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+  return text.length === 0;
+};
 
 const CampaignDetailPage = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   
   const [recipientsData, setRecipientsData] = useState({ recipients: [], total: 0, page: 1, pages: 1 });
   const [recipientsPage, setRecipientsPage] = useState(1);
   const [loadingRecipients, setLoadingRecipients] = useState(true);
+  const [isSavingSequence, setIsSavingSequence] = useState(false);
+  const [isSchedulingFollowUps, setIsSchedulingFollowUps] = useState(false);
+  const [cancellingFollowUpOrder, setCancellingFollowUpOrder] = useState(null);
+  const [trackingFilter, setTrackingFilter] = useState('All');
+  const [showAllTracking, setShowAllTracking] = useState(false);
+  const [isSequenceExpanded, setIsSequenceExpanded] = useState(false);
+  const [isSequenceDirty, setIsSequenceDirty] = useState(false);
+  const [isStatsRefreshing, setIsStatsRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
 
   // Edit Name State
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [templateDescription, setTemplateDescription] = useState('');
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const actionsRef = useRef(null);
+  const isSequenceDirtyRef = useRef(false);
 
   useEffect(() => {
-    const fetchCampaign = async () => {
-      try {
-        const res = await api.get(`/analytics/campaigns/${id}`);
-        setData(res.data);
-        setEditedName(res.data.campaign.name);
-      } catch (err) {
-        console.error(err);
-        toast.error('Failed to load campaign');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchCampaign();
-  }, [id]);
+    isSequenceDirtyRef.current = isSequenceDirty;
+  }, [isSequenceDirty]);
 
-  useEffect(() => {
-    const fetchRecipients = async () => {
-      setLoadingRecipients(true);
-      try {
-        const res = await api.get(`/campaigns/${id}/recipients?page=${recipientsPage}&limit=10`);
-        setRecipientsData(res.data);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoadingRecipients(false);
-      }
-    };
-    fetchRecipients();
+  const markSequenceDirty = () => {
+    isSequenceDirtyRef.current = true;
+    setIsSequenceDirty(true);
+  };
+
+  const clearSequenceDirty = () => {
+    isSequenceDirtyRef.current = false;
+    setIsSequenceDirty(false);
+  };
+
+  const fetchCampaign = useCallback(async ({ silent = false, statsRefresh = false } = {}) => {
+    if (!silent) setLoading(true);
+    if (statsRefresh) setIsStatsRefreshing(true);
+    try {
+      const res = await api.get(`/analytics/campaigns/${id}`);
+      setData(prev => {
+        if (!prev || !isSequenceDirtyRef.current) return res.data;
+
+        return {
+          ...res.data,
+          campaign: {
+            ...res.data.campaign,
+            followUps: prev.campaign.followUps
+          }
+        };
+      });
+      setEditedName(current => (isEditingName ? current : res.data.campaign.name));
+      setLastUpdatedAt(new Date());
+    } catch (err) {
+      console.error(err);
+      if (!silent) toast.error('Failed to load campaign');
+    } finally {
+      if (!silent) setLoading(false);
+      if (statsRefresh) setIsStatsRefreshing(false);
+    }
+  }, [id, isEditingName]);
+
+  const fetchRecipients = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoadingRecipients(true);
+    try {
+      const res = await api.get(`/campaigns/${id}/recipients?page=${recipientsPage}&limit=10`);
+      setRecipientsData(res.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      if (!silent) setLoadingRecipients(false);
+    }
   }, [id, recipientsPage]);
+
+  useEffect(() => {
+    fetchCampaign();
+  }, [fetchCampaign]);
+
+  useEffect(() => {
+    fetchRecipients();
+  }, [fetchRecipients]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      fetchCampaign({ silent: true, statsRefresh: true });
+      fetchRecipients({ silent: true });
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [fetchCampaign, fetchRecipients]);
 
   // Click outside to close actions dropdown
   useEffect(() => {
@@ -72,7 +140,7 @@ const CampaignDetailPage = () => {
       setData(prev => ({ ...prev, campaign: { ...prev.campaign, name: editedName } }));
       setIsEditingName(false);
       toast.success('Campaign renamed');
-    } catch (err) {
+    } catch {
       toast.error('Failed to rename campaign');
     }
   };
@@ -82,8 +150,201 @@ const CampaignDetailPage = () => {
       await api.post(`/campaigns/${id}/duplicate`);
       toast.success('Campaign duplicated! Check your campaigns list.');
       setActionsOpen(false);
-    } catch (err) {
+    } catch {
       toast.error('Failed to duplicate campaign');
+    }
+  };
+
+  const handleSaveAsTemplate = async () => {
+    if (!templateName.trim()) {
+      toast.error('Template name is required');
+      return;
+    }
+
+    setIsSavingTemplate(true);
+    try {
+      await api.post(`/templates/from-campaign/${id}`, {
+        name: templateName.trim(),
+        description: templateDescription.trim()
+      });
+      toast.success('Campaign saved as template');
+      setIsTemplateModalOpen(false);
+      setTemplateName('');
+      setTemplateDescription('');
+      setActionsOpen(false);
+    } catch {
+      toast.error('Failed to save template');
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  };
+
+  const handleAddFollowUp = () => {
+    if (data.campaign.status === 'sending') {
+      toast.error('Please pause the campaign first to add a new follow-up step.');
+      return;
+    }
+    
+    markSequenceDirty();
+    setData(prev => ({
+      ...prev,
+      campaign: {
+        ...prev.campaign,
+        followUps: [
+          ...(prev.campaign.followUps || []),
+          {
+            order: (prev.campaign.followUps?.length || 0) + 1,
+            subject: prev.campaign.subject || '',
+            body: '',
+            delayDays: 3,
+            onlyIfNoReply: true,
+            inSameThread: true,
+            status: 'draft',
+            attachments: [],
+            excludedRecipients: []
+          }
+        ]
+      }
+    }));
+  };
+
+  const handleUpdateFollowUp = (index, updatedFollowUp) => {
+    markSequenceDirty();
+    const newFollowUps = [...(data.campaign.followUps || [])];
+    newFollowUps[index] = {
+      ...updatedFollowUp,
+      subject: updatedFollowUp.inSameThread !== false ? data.campaign.subject || '' : updatedFollowUp.subject
+    };
+    setData(prev => ({ ...prev, campaign: { ...prev.campaign, followUps: newFollowUps } }));
+  };
+
+  const handleRemoveFollowUp = (index) => {
+    const newFollowUps = [...(data.campaign.followUps || [])];
+    const status = newFollowUps[index]?.status || 'draft';
+    if (['scheduled', 'sending', 'completed', 'cancelled'].includes(status)) {
+      toast.error('Scheduled or completed follow-ups must be cancelled instead of deleted.');
+      return;
+    }
+    markSequenceDirty();
+    newFollowUps.splice(index, 1);
+    newFollowUps.forEach((f, i) => f.order = i + 1);
+    setData(prev => ({ ...prev, campaign: { ...prev.campaign, followUps: newFollowUps } }));
+  };
+
+  const handleSaveSequence = async () => {
+    setIsSavingSequence(true);
+    try {
+      const followUps = (data.campaign.followUps || []).map((followUp, index) => ({
+        ...followUp,
+        order: index + 1,
+        status: followUp.status || 'draft',
+        subject: followUp.inSameThread !== false ? data.campaign.subject || '' : followUp.subject
+      }));
+      await api.put(`/campaigns/${id}`, { followUps });
+      clearSequenceDirty();
+      await fetchCampaign({ silent: true });
+      toast.success('Sequence draft saved');
+    } catch {
+      toast.error('Failed to save sequence');
+    } finally {
+      setIsSavingSequence(false);
+    }
+  };
+
+  const handleScheduleFollowUps = async () => {
+    const followUps = (data.campaign.followUps || []).map((followUp, index) => ({
+      ...followUp,
+      order: index + 1,
+      status: followUp.status || 'draft',
+      subject: followUp.inSameThread !== false ? data.campaign.subject || '' : followUp.subject
+    }));
+    const confirmableFollowUps = followUps.filter(followUp => CONFIRMABLE_FOLLOW_UP_STATUSES.includes(followUp.status));
+
+    if (confirmableFollowUps.length === 0) {
+      toast.error('Add a draft follow-up before scheduling.');
+      return;
+    }
+
+    const invalidBodyIndex = followUps.findIndex(followUp => (
+      CONFIRMABLE_FOLLOW_UP_STATUSES.includes(followUp.status) && isBlankHtml(followUp.body)
+    ));
+    if (invalidBodyIndex >= 0) {
+      toast.error(`Follow-up ${invalidBodyIndex + 1} needs a message body before scheduling.`);
+      return;
+    }
+
+    const invalidSubjectIndex = followUps.findIndex(followUp => (
+      CONFIRMABLE_FOLLOW_UP_STATUSES.includes(followUp.status)
+      && followUp.inSameThread === false
+      && !followUp.subject?.trim()
+    ));
+    if (invalidSubjectIndex >= 0) {
+      toast.error(`Follow-up ${invalidSubjectIndex + 1} needs a subject when it is not in the same thread.`);
+      return;
+    }
+
+    setIsSchedulingFollowUps(true);
+    try {
+      const res = await api.post(`/campaigns/${id}/follow-ups/schedule`, { followUps });
+      setData(prev => ({ ...prev, campaign: res.data.campaign }));
+      clearSequenceDirty();
+      toast.success(res.data.scheduledCount === 1 ? 'Follow-up scheduled' : `${res.data.scheduledCount} follow-ups scheduled`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to schedule follow-ups');
+    } finally {
+      setIsSchedulingFollowUps(false);
+    }
+  };
+
+  const handleCancelFollowUpSchedule = async (order) => {
+    setCancellingFollowUpOrder(order);
+    try {
+      const res = await api.post(`/campaigns/${id}/follow-ups/${order}/cancel`);
+      const cancelledFollowUp = res.data.campaign.followUps?.find(followUp => followUp.order === order);
+
+      setData(prev => {
+        const hasLocalSequenceEdits = isSequenceDirtyRef.current;
+        if (!hasLocalSequenceEdits) return { ...prev, campaign: res.data.campaign };
+
+        return {
+          ...prev,
+          campaign: {
+            ...res.data.campaign,
+            followUps: (prev.campaign.followUps || []).map(followUp => (
+              (followUp.order || 0) === order && cancelledFollowUp
+                ? {
+                    ...followUp,
+                    status: cancelledFollowUp.status,
+                    cancelledAt: cancelledFollowUp.cancelledAt,
+                    completedAt: cancelledFollowUp.completedAt
+                  }
+                : followUp
+            ))
+          }
+        };
+      });
+      if (!isSequenceDirtyRef.current) clearSequenceDirty();
+      toast.success('Follow-up schedule cancelled');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to cancel follow-up schedule');
+    } finally {
+      setCancellingFollowUpOrder(null);
+    }
+  };
+
+  const handleTogglePause = async () => {
+    try {
+      if (data.campaign.status === 'sending' || data.campaign.status === 'scheduled') {
+        await api.post(`/campaigns/${id}/pause`);
+        setData(prev => ({ ...prev, campaign: { ...prev.campaign, status: 'paused' } }));
+        toast.success('Campaign paused');
+      } else if (data.campaign.status === 'paused') {
+        const res = await api.post(`/campaigns/${id}/resume`);
+        setData(prev => ({ ...prev, campaign: { ...prev.campaign, status: res.data.campaign.status } }));
+        toast.success('Campaign resumed');
+      }
+    } catch {
+      toast.error('Action failed');
     }
   };
 
@@ -110,8 +371,28 @@ const CampaignDetailPage = () => {
   );
   if (!data || !data.campaign) return <div className="text-center mt-20 text-gray-500">Campaign not found</div>;
 
-  const { campaign, timeline } = data;
+  const { campaign, timeline, trackingDetails = [], rates = {} } = data;
   const { stats } = campaign;
+  const followUps = campaign.followUps || [];
+  const draftFollowUpCount = followUps.filter(followUp => ACTIVE_DRAFT_FOLLOW_UP_STATUSES.includes(followUp.status || 'draft')).length;
+  const scheduledFollowUpCount = followUps.filter(followUp => followUp.status === 'scheduled').length;
+  const confirmableFollowUpCount = followUps.filter(followUp => CONFIRMABLE_FOLLOW_UP_STATUSES.includes(followUp.status || 'draft')).length;
+  const shouldShowSchedulePanel = followUps.length > 0 && (isSequenceDirty || draftFollowUpCount > 0 || scheduledFollowUpCount > 0);
+  const canConfirmFollowUps = confirmableFollowUpCount > 0;
+  const scheduleActionLabel = scheduledFollowUpCount > 0
+    ? 'Update follow-up schedule'
+    : draftFollowUpCount === 1
+      ? 'Schedule follow-up'
+      : `Schedule ${draftFollowUpCount || confirmableFollowUpCount} follow-ups`;
+  const campaignTimezone = campaign.schedule?.timezone || campaign.schedule?.autopilot?.timezone;
+  const filteredTrackingDetails = trackingDetails.filter(recipient => {
+    if (trackingFilter === 'All') return true;
+    if (trackingFilter === 'Opened') return recipient.opened;
+    if (trackingFilter === 'Clicked') return recipient.clicked;
+    if (trackingFilter === 'Replied') return recipient.replied;
+    return recipient.status === trackingFilter.toLowerCase();
+  });
+  const visibleTrackingDetails = showAllTracking ? filteredTrackingDetails : filteredTrackingDetails.slice(0, 6);
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
@@ -146,7 +427,12 @@ const CampaignDetailPage = () => {
               {getStatusBadge(campaign.status)}
             </div>
             <div className="text-sm text-gray-500 mt-2 flex items-center gap-2">
-              <Clock size={14} /> Created: {new Date(campaign.startedAt || Date.now()).toLocaleString()}
+              <Clock size={14} /> Created: {campaign.startedAt || campaign.createdAt ? new Date(campaign.startedAt || campaign.createdAt).toLocaleString() : 'Not started'}
+            </div>
+            <div className="text-xs text-gray-500 mt-2 inline-flex items-center gap-1.5">
+              <RefreshCw size={12} className={isStatsRefreshing ? 'animate-spin' : ''} />
+              Auto-updates every 15s
+              {lastUpdatedAt && <span>- Updated {lastUpdatedAt.toLocaleTimeString()}</span>}
             </div>
           </div>
 
@@ -165,6 +451,27 @@ const CampaignDetailPage = () => {
                 >
                   <Copy size={16} className="text-gray-400" /> Duplicate Campaign
                 </button>
+                <button
+                  onClick={() => {
+                    setTemplateName(campaign.name ? `${campaign.name} template` : '');
+                    setIsTemplateModalOpen(true);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <LayoutTemplate size={16} className="text-gray-400" /> Save as Template
+                </button>
+                {(['scheduled', 'sending', 'paused'].includes(campaign.status)) && (
+                  <button 
+                    onClick={handleTogglePause}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                  >
+                    {campaign.status === 'sending' || campaign.status === 'scheduled' ? (
+                      <><Pause size={16} className="text-gray-400" /> Pause Campaign</>
+                    ) : (
+                      <><Play size={16} className="text-gray-400" /> Resume Campaign</>
+                    )}
+                  </button>
+                )}
                 {/* Future actions can go here */}
               </div>
             )}
@@ -176,23 +483,267 @@ const CampaignDetailPage = () => {
         <div className="stat-card">
           <div className="text-3xl mb-2">🚀</div>
           <div className="text-sm font-medium text-gray-500">Emails sent</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">{stats.sent}</div>
+          {isStatsRefreshing ? (
+            <div className="h-8 w-14 rounded-md bg-gray-200 animate-pulse mt-2" aria-label="Refreshing sent count" />
+          ) : (
+            <div className="text-2xl font-bold text-gray-900 mt-1">{stats.sent}</div>
+          )}
         </div>
         <div className="stat-card">
           <div className="text-3xl mb-2">👀</div>
           <div className="text-sm font-medium text-gray-500">Opens</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">{stats.opened}</div>
+          {isStatsRefreshing ? (
+            <div className="h-8 w-14 rounded-md bg-gray-200 animate-pulse mt-2" aria-label="Refreshing open count" />
+          ) : (
+            <div className="text-2xl font-bold text-gray-900 mt-1">{stats.opened}</div>
+          )}
+          <div className="text-xs text-gray-500 mt-1">{rates.openRate || '0.0'}% open rate</div>
         </div>
         <div className="stat-card">
           <div className="text-3xl mb-2">🖱️</div>
           <div className="text-sm font-medium text-gray-500">Clicks</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">{stats.clicked}</div>
+          {isStatsRefreshing ? (
+            <div className="h-8 w-14 rounded-md bg-gray-200 animate-pulse mt-2" aria-label="Refreshing click count" />
+          ) : (
+            <div className="text-2xl font-bold text-gray-900 mt-1">{stats.clicked}</div>
+          )}
+          <div className="text-xs text-gray-500 mt-1">{rates.clickRate || '0.0'}% click rate</div>
         </div>
         <div className="stat-card">
-          <div className="text-3xl mb-2">❌</div>
-          <div className="text-sm font-medium text-gray-500">Bounced</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">{stats.bounced}</div>
+          <div className="text-3xl mb-2">↩</div>
+          <div className="text-sm font-medium text-gray-500">Replies</div>
+          {isStatsRefreshing ? (
+            <div className="h-8 w-14 rounded-md bg-gray-200 animate-pulse mt-2" aria-label="Refreshing reply count" />
+          ) : (
+            <div className="text-2xl font-bold text-gray-900 mt-1">{stats.replied}</div>
+          )}
+          <div className="text-xs text-gray-500 mt-1">{rates.replyRate || '0.0'}% reply rate</div>
         </div>
+      </div>
+
+      <div className="mb-8 card shadow-sm">
+        <div className="px-6 py-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50 rounded-t-xl">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Tracking Details</h3>
+            <p className="text-sm text-gray-500 mt-1">Recipient-level engagement with opens, clicks, replies, and last activity timestamps.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              value={trackingFilter}
+              onChange={(e) => setTrackingFilter(e.target.value)}
+            >
+              <option>All</option>
+              <option>Opened</option>
+              <option>Clicked</option>
+              <option>Replied</option>
+              <option>sent</option>
+              <option>pending</option>
+              <option>failed</option>
+            </select>
+            {filteredTrackingDetails.length > 6 && (
+              <button className="btn-outline text-sm gap-2" onClick={() => setShowAllTracking(prev => !prev)}>
+                {showAllTracking ? 'Show less' : 'View all'} <ChevronDown size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-white text-gray-500 uppercase text-xs font-semibold border-b border-gray-100">
+              <tr>
+                <th className="px-6 py-4">Recipient</th>
+                <th className="px-6 py-4 text-center">Opens</th>
+                <th className="px-6 py-4 text-center">Clicks</th>
+                <th className="px-6 py-4 text-center">Reply</th>
+                <th className="px-6 py-4">Last opened</th>
+                <th className="px-6 py-4">Last clicked</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {visibleTrackingDetails.length > 0 ? (
+                visibleTrackingDetails.map(recipient => (
+                  <tr key={recipient._id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-gray-900">{recipient.name || recipient.email}</div>
+                      <div className="text-xs text-gray-500">{recipient.email}</div>
+                      {recipient.role && <div className="text-xs text-blue-700 mt-1">{recipient.role}</div>}
+                    </td>
+                    <td className="px-6 py-4 text-center font-semibold text-gray-900">{recipient.openCount}</td>
+                    <td className="px-6 py-4 text-center font-semibold text-gray-900">{recipient.clickCount}</td>
+                    <td className="px-6 py-4 text-center">
+                      {recipient.replied ? (
+                        <span className="inline-flex justify-center text-emerald-600"><Reply size={18} /></span>
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">{recipient.lastOpenedAt ? formatDateTime(recipient.lastOpenedAt, campaignTimezone) : '-'}</td>
+                    <td className="px-6 py-4 text-gray-600">{recipient.lastClickedAt ? formatDateTime(recipient.lastClickedAt, campaignTimezone) : '-'}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="6" className="px-6 py-10 text-center text-gray-500">
+                    No tracking activity matches this filter yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Sequence Builder Section */}
+      <div className="mb-8 card shadow-sm flex flex-col">
+        <div className="px-6 py-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50 rounded-t-xl">
+          <button
+            className="text-left flex items-start gap-3 min-w-0"
+            onClick={() => setIsSequenceExpanded(prev => !prev)}
+            aria-expanded={isSequenceExpanded}
+          >
+            <span className="h-8 w-8 rounded-lg bg-white border border-gray-200 text-gray-500 inline-flex items-center justify-center shrink-0 mt-0.5">
+              {isSequenceExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-lg font-semibold text-gray-900">Sequence Timeline</span>
+              <span className="block text-sm text-gray-500 mt-0.5">
+                1 main email{followUps.length ? ` + ${followUps.length} follow-up${followUps.length === 1 ? '' : 's'}` : ''}
+              </span>
+              <span className="mt-2 flex flex-wrap gap-2">
+                {scheduledFollowUpCount > 0 && (
+                  <span className="inline-flex text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
+                    {scheduledFollowUpCount} scheduled
+                  </span>
+                )}
+                {draftFollowUpCount > 0 && (
+                  <span className="inline-flex text-xs font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
+                    {draftFollowUpCount} draft
+                  </span>
+                )}
+                {isSequenceDirty && (
+                  <span className="inline-flex text-xs font-medium text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5">
+                    Unsaved changes
+                  </span>
+                )}
+              </span>
+            </span>
+          </button>
+          {isSequenceExpanded && (
+            <button 
+              className="btn-outline py-1.5 px-3 flex items-center gap-2 text-sm self-start sm:self-auto bg-white"
+              onClick={handleSaveSequence}
+              disabled={isSavingSequence}
+            >
+              <Save size={16} /> {isSavingSequence ? 'Saving...' : 'Save Draft'}
+            </button>
+          )}
+        </div>
+        
+        {isSequenceExpanded && (
+          <div className="p-6 bg-gray-50/30">
+            {/* Main Email */}
+            <div className="card bg-white shadow-sm border border-gray-200 flex flex-col mb-4 overflow-hidden">
+              <div className="flex items-center justify-between p-3 bg-blue-50/50 border-b border-blue-100">
+                <div className="text-blue-900 text-sm font-semibold flex items-center gap-2">
+                  <Mail size={16} className="text-blue-500" /> Step 1 (Main Email)
+                </div>
+              </div>
+              <div className="flex border-b border-gray-100">
+                <div className="w-24 px-4 py-3 text-sm font-medium text-gray-500 border-r border-gray-100 flex items-center">Subject:</div>
+                <input 
+                  type="text" 
+                  className="flex-1 px-4 py-3 text-sm text-gray-900 outline-none font-medium bg-transparent" 
+                  value={campaign.subject}
+                  disabled
+                />
+              </div>
+              <div className="flex-1 relative">
+                <ComposeEditor value={campaign.body} isReadOnly={true} />
+                <div className="absolute inset-0 bg-transparent cursor-not-allowed"></div>
+              </div>
+            </div>
+
+            {/* Follow Ups */}
+            {followUps.map((followUp, index) => (
+              <FollowUpEditor 
+                key={`followup-${index}`}
+                followUp={followUp}
+                index={index}
+                onUpdate={handleUpdateFollowUp}
+                onRemove={handleRemoveFollowUp}
+                availablePlaceholders={[]} // Placeholders can be empty or extracted from campaign if needed
+                recipientsData={recipientsData.recipients}
+                isReadOnly={LOCKED_FOLLOW_UP_STATUSES.includes(followUp.status)}
+                mainSubject={campaign.subject}
+                onCancelSchedule={handleCancelFollowUpSchedule}
+                isCancellingSchedule={cancellingFollowUpOrder === (followUp.order || index + 1)}
+              />
+            ))}
+
+            {shouldShowSchedulePanel && (
+              <div className="mb-4 rounded-xl border border-indigo-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 inline-flex items-center justify-center">
+                        <CalendarCheck size={17} />
+                      </span>
+                      <span className="text-sm font-semibold text-gray-900">Follow-up scheduling</span>
+                      {draftFollowUpCount > 0 && (
+                        <span className="text-xs font-medium text-gray-700 bg-gray-100 border border-gray-200 rounded-full px-2 py-0.5">
+                          {draftFollowUpCount} draft
+                        </span>
+                      )}
+                      {scheduledFollowUpCount > 0 && (
+                        <span className="text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
+                          {scheduledFollowUpCount} scheduled
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Saving keeps the timeline as a draft. Scheduling confirms the follow-up rules and moves this campaign into the scheduled queue.
+                    </p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                    {isSequenceDirty && (
+                      <button
+                        className="btn-outline bg-white gap-2 justify-center"
+                        onClick={handleSaveSequence}
+                        disabled={isSavingSequence || isSchedulingFollowUps}
+                      >
+                        <Save size={16} /> {isSavingSequence ? 'Saving...' : 'Save Draft'}
+                      </button>
+                    )}
+                    {(draftFollowUpCount > 0 || isSequenceDirty) && (
+                      <button
+                        className="btn-primary gap-2 justify-center"
+                        onClick={handleScheduleFollowUps}
+                        disabled={!canConfirmFollowUps || isSchedulingFollowUps}
+                      >
+                        {isSchedulingFollowUps ? <Loader2 size={16} className="animate-spin" /> : <CalendarCheck size={16} />}
+                        {isSchedulingFollowUps ? 'Scheduling...' : scheduleActionLabel}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button 
+              className={`flex items-center justify-center gap-2 w-full py-4 border-2 border-dashed rounded-xl font-medium transition-colors ${
+                campaign.status === 'sending' 
+                  ? 'border-gray-200 text-gray-400 cursor-not-allowed bg-gray-50'
+                  : 'border-blue-200 text-blue-600 hover:border-blue-300 hover:bg-blue-50'
+              }`}
+              onClick={handleAddFollowUp}
+              title={campaign.status === 'sending' ? 'Pause campaign to add follow-up' : ''}
+            >
+              <Plus size={18} /> Add a follow-up email
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -292,7 +843,7 @@ const CampaignDetailPage = () => {
             <div className="p-6 flex-1 overflow-y-auto max-h-[600px]">
               {timeline.length > 0 ? (
                 <div className="relative border-l-2 border-gray-200 ml-3 space-y-8 pb-4">
-                  {timeline.map((event, index) => (
+                  {timeline.map((event) => (
                     <div key={event._id} className="relative pl-6">
                       <div className="absolute -left-[9px] top-1 bg-white rounded-full p-0.5 border-2 border-gray-200">
                         <div className={`w-3 h-3 rounded-full ${
@@ -332,6 +883,44 @@ const CampaignDetailPage = () => {
           </div>
         </div>
       </div>
+
+      <Modal
+        isOpen={isTemplateModalOpen}
+        onClose={() => setIsTemplateModalOpen(false)}
+        title="Save campaign as template"
+        size="sm"
+        footer={(
+          <>
+            <button className="btn-outline" onClick={() => setIsTemplateModalOpen(false)}>Cancel</button>
+            <button className="btn-primary gap-2" onClick={handleSaveAsTemplate} disabled={isSavingTemplate}>
+              <LayoutTemplate size={16} /> {isSavingTemplate ? 'Saving...' : 'Save template'}
+            </button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Template name</label>
+            <input
+              type="text"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              placeholder="Backend recruiter outreach"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
+            <textarea
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none"
+              rows={3}
+              value={templateDescription}
+              onChange={(e) => setTemplateDescription(e.target.value)}
+              placeholder="Optional notes about when this template should be reused"
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

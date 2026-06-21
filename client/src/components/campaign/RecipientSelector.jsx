@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Modal from '../common/Modal';
-import { FileSpreadsheet, FileText, Upload, ChevronRight, ChevronLeft } from 'lucide-react';
+import { FileSpreadsheet, FileText, Upload, ChevronRight, ChevronLeft, CheckCircle2, Mail, UserRound } from 'lucide-react';
 import api from '../../api';
 import Papa from 'papaparse';
 
@@ -22,8 +22,29 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
 
   // Preview & Summary state
   const [previewData, setPreviewData] = useState(null);
+  const [importedSummary, setImportedSummary] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const getEmail = (row) => row?.[emailColumn] || row?.email || row?.Email || row?.EMAIL || '';
+  const getName = (row) => row?.name || row?.Name || row?.fullName || row?.FullName || row?.['Full Name'] || '';
+  const getRole = (row) => row?.role || row?.Role || row?.title || row?.Title || '';
+
+  const resetSelector = () => {
+    setStep(1);
+    setMethod(null);
+    setSpreadsheetUrl('');
+    setSheetNames([]);
+    setSelectedSheet('');
+    setColumns([]);
+    setEmailColumn('');
+    setFilterColumn('');
+    setUniqueValues([]);
+    setSelectedValues([]);
+    setPreviewData(null);
+    setImportedSummary(null);
+    setError('');
+  };
 
   const handleMethodSelect = (selectedMethod) => {
     setMethod(selectedMethod);
@@ -40,7 +61,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
     try {
       const res = await api.post('/sheets/names', { spreadsheetUrl });
       setSheetNames(res.data.sheets);
-    } catch (err) {
+    } catch {
       setError('Failed to fetch sheets. Make sure the URL is correct and the sheet is accessible.');
     } finally {
       setIsLoading(false);
@@ -57,7 +78,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
       const emailCol = res.data.columns.find(c => c.toLowerCase().includes('email'));
       if (emailCol) setEmailColumn(emailCol);
       setStep(3);
-    } catch (err) {
+    } catch {
       setError('Failed to fetch columns.');
     } finally {
       setIsLoading(false);
@@ -115,7 +136,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
       const res = await api.post('/sheets/unique-values', { spreadsheetUrl, sheetName: selectedSheet, column: columnName });
       setUniqueValues(res.data.values);
       setSelectedValues(res.data.values);
-    } catch (err) {
+    } catch {
       setError('Failed to fetch unique values.');
     } finally {
       setIsLoading(false);
@@ -146,7 +167,8 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
       setPreviewData({
         ...previewData,
         filteredCount: validData.length,
-        data: validData
+        data: validData,
+        sampleRows: validData.slice(0, 5)
       });
       setStep(4);
       return;
@@ -163,7 +185,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
       });
       setPreviewData(res.data);
       setStep(4);
-    } catch (err) {
+    } catch {
       setError('Failed to preview data.');
     } finally {
       setIsLoading(false);
@@ -177,14 +199,18 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
         data: row
       }));
       onImport(formattedData, columns);
-      
-      setStep(1);
-      setMethod(null);
-      setSpreadsheetUrl('');
-      setSheetNames([]);
-      setSelectedSheet('');
-      setPreviewData(null);
+      setImportedSummary({
+        count: formattedData.length,
+        method,
+        sampleRows: previewData.data.slice(0, 8)
+      });
+      setStep(5);
     }
+  };
+
+  const handleDone = () => {
+    resetSelector();
+    onClose();
   };
 
   return (
@@ -386,6 +412,37 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
             </div>
 
             <div>
+              <h4 className="text-sm font-semibold text-gray-900 mb-3">Recipients to import</h4>
+              <div className="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-100 bg-white">
+                {(previewData.sampleRows || previewData.data.slice(0, 5)).map((row, index) => (
+                  <div key={`${getEmail(row)}-${index}`} className="flex items-center gap-3 px-4 py-3">
+                    <div className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                      <UserRound size={17} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {getName(row) || getEmail(row) || 'Unnamed recipient'}
+                      </div>
+                      <div className="text-xs text-gray-500 truncate flex items-center gap-1.5">
+                        <Mail size={12} /> {getEmail(row)}
+                      </div>
+                    </div>
+                    {getRole(row) && (
+                      <span className="hidden sm:inline-flex px-2 py-1 rounded-md bg-gray-100 text-xs font-medium text-gray-600 max-w-[160px] truncate">
+                        {getRole(row)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {previewData.filteredCount > 5 && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Showing 5 of {previewData.filteredCount} recipients.
+                </p>
+              )}
+            </div>
+
+            <div>
               <h4 className="text-sm font-semibold text-gray-900 mb-3">Available Personalization Variables</h4>
               <div className="flex flex-wrap gap-2 p-4 bg-gray-50 rounded-lg border border-gray-100">
                 {columns.map(c => (
@@ -406,6 +463,59 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
                 onClick={handleImport}
               >
                 Import {previewData.filteredCount} Recipients
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 5 && importedSummary && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
+            <div className="flex items-start gap-4 rounded-xl border border-emerald-100 bg-emerald-50 p-5">
+              <div className="w-11 h-11 rounded-full bg-white text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
+                <CheckCircle2 size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-emerald-950">
+                  {importedSummary.count} recipients imported
+                </h3>
+                <p className="text-sm text-emerald-800 mt-1">
+                  These recipients are now attached to the campaign draft. You can use their columns as personalization variables.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-semibold text-gray-900 mb-3">Imported people</h4>
+              <div className="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-100 bg-white">
+                {importedSummary.sampleRows.map((row, index) => (
+                  <div key={`${getEmail(row)}-${index}`} className="flex items-center gap-3 px-4 py-3">
+                    <div className="w-9 h-9 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center shrink-0">
+                      <UserRound size={17} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {getName(row) || getEmail(row) || 'Unnamed recipient'}
+                      </div>
+                      <div className="text-xs text-gray-500 truncate">{getEmail(row)}</div>
+                    </div>
+                    {getRole(row) && (
+                      <span className="hidden sm:inline-flex px-2 py-1 rounded-md bg-blue-50 text-xs font-medium text-blue-700 max-w-[160px] truncate">
+                        {getRole(row)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {importedSummary.count > importedSummary.sampleRows.length && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Showing {importedSummary.sampleRows.length} of {importedSummary.count} imported recipients.
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-6 border-t border-gray-100">
+              <button className="px-6 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-sm" onClick={handleDone}>
+                Done
               </button>
             </div>
           </div>

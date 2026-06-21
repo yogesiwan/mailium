@@ -1,5 +1,3 @@
-import React from 'react';
-
 const Badge = ({ status, children }) => {
   const styles = {
     draft: 'bg-gray-100 text-gray-700',

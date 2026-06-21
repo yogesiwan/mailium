@@ -1,6 +1,11 @@
 const { google } = require('googleapis');
 const Settings = require('../models/Settings');
 
+const getOAuthCallbackUrl = () => {
+  const baseUrl = (process.env.TRACKING_BASE_URL || 'http://localhost:5001').replace(/\/+$/, '');
+  return `${baseUrl}/api/settings/oauth/callback`;
+};
+
 /**
  * Creates and returns an authenticated OAuth2 client.
  * If credentials exist in DB, they are used. Otherwise, it falls back to ENV vars.
@@ -9,7 +14,7 @@ const getOAuth2Client = async () => {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    process.env.TRACKING_BASE_URL + '/api/settings/oauth/callback' // Redirect URI
+    getOAuthCallbackUrl()
   );
 
   try {

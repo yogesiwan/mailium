@@ -58,13 +58,16 @@ router.post('/import', async (req, res, next) => {
 
     // Insert ignoring duplicates
     let insertedCount = 0;
+    let insertedDocs = [];
     try {
       const result = await Recipient.insertMany(formattedRecipients, { ordered: false });
       insertedCount = result.length;
+      insertedDocs = result;
     } catch (error) {
       // If error is 11000 (duplicate key), insertMany throws, but we can get the inserted docs
       if (error.code === 11000 && error.insertedDocs) {
         insertedCount = error.insertedDocs.length;
+        insertedDocs = error.insertedDocs;
       } else {
         throw error;
       }
@@ -77,7 +80,13 @@ router.post('/import', async (req, res, next) => {
     res.json({
       success: true,
       insertedCount,
-      totalRecipients
+      duplicateCount: Math.max(recipientsData.length - insertedCount, 0),
+      totalRecipients,
+      sampleRecipients: insertedDocs.slice(0, 8).map(recipient => ({
+        email: recipient.email,
+        data: recipient.data,
+        status: recipient.status
+      }))
     });
   } catch (err) {
     next(err);

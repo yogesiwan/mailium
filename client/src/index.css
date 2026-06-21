@@ -20,6 +20,37 @@
 }
 
 @layer utilities {
+  @keyframes active-editor-swap {
+    from {
+      opacity: 0.85;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .active-editor-swap {
+    animation: active-editor-swap 180ms ease-out;
+  }
+
+  .follow-up-list-scroll {
+    max-height: min(42vh, 28rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scroll-behavior: smooth;
+    scroll-padding-block: 0.75rem;
+    padding-bottom: 0.25rem;
+  }
+
+  @media (max-width: 1023px) {
+    .follow-up-list-scroll {
+      max-height: min(50vh, 30rem);
+    }
+  }
+
   .btn-primary {
     @apply bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors inline-flex items-center justify-center;
   }

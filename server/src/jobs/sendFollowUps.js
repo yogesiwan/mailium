@@ -3,21 +3,64 @@ const Recipient = require('../models/Recipient');
 const { sendEmail } = require('../services/emailService');
 const { replacePlaceholders } = require('../services/templateEngine');
 const { generateTrackingId } = require('../services/trackingService');
+const { getAutopilotWindowState } = require('../utils/timezone');
+
+const ACTIVE_FOLLOW_UP_STATUSES = ['pending', 'scheduled', 'sending'];
+
+const hasActiveFollowUps = (campaign) => (
+  (campaign.followUps || []).some(followUp => ACTIVE_FOLLOW_UP_STATUSES.includes(followUp.status))
+);
+
+const completeCampaignIfFollowUpsDone = async (campaign) => {
+  if (campaign.status !== 'scheduled' || hasActiveFollowUps(campaign)) return;
+
+  const pendingRecipients = await Recipient.countDocuments({
+    campaignId: campaign._id,
+    status: { $in: ['pending', 'queued'] }
+  });
+
+  if (pendingRecipients === 0) {
+    campaign.status = 'completed';
+    campaign.completedAt = new Date();
+  }
+};
 
 module.exports = function(agenda) {
   agenda.define('send-follow-ups', async (job, done) => {
     try {
-      // Find campaigns that are completed or sending and have pending follow-ups
-      const campaigns = await Campaign.find({
-        status: { $in: ['sending', 'completed'] },
-        'followUps.status': { $in: ['pending', 'sending'] }
-      });
+      const now = new Date();
+      let nextCheckAt = new Date(now.getTime() + 60 * 60 * 1000);
+
+      const { campaignId } = job.attrs.data || {};
+      const campaignQuery = {
+        status: { $in: ['scheduled', 'sending', 'completed'] },
+        'followUps.status': { $in: ACTIVE_FOLLOW_UP_STATUSES }
+      };
+      if (campaignId) campaignQuery._id = campaignId;
+
+      const campaigns = await Campaign.find(campaignQuery);
 
       for (const campaign of campaigns) {
         for (let i = 0; i < campaign.followUps.length; i++) {
           const followUp = campaign.followUps[i];
           
-          if (followUp.status === 'completed') continue;
+          if (!ACTIVE_FOLLOW_UP_STATUSES.includes(followUp.status)) continue;
+
+          if (followUp.schedule?.sendAt) {
+            const sendAt = new Date(followUp.schedule.sendAt);
+            if (sendAt > now) {
+              if (sendAt < nextCheckAt) nextCheckAt = sendAt;
+              continue;
+            }
+          }
+
+          if (followUp.schedule?.autopilot?.enabled) {
+            const windowState = getAutopilotWindowState(followUp.schedule.autopilot, now);
+            if (!windowState.allowed) {
+              if (windowState.nextRun && windowState.nextRun < nextCheckAt) nextCheckAt = windowState.nextRun;
+              continue;
+            }
+          }
           
           // Determine if we should process this follow-up order
           // Only process order X if order X-1 is completed, or if it's order 1
@@ -37,36 +80,65 @@ module.exports = function(agenda) {
             campaignId: campaign._id,
             status: { $nin: ['bounced', 'failed'] } // Don't follow up on failures
           };
+          const andConditions = [];
 
           if (followUp.onlyIfNoReply) {
             query['mainEmail.replied'] = false;
             // Also ensure no replies on previous follow-ups
             query['followUps.replied'] = { $ne: true };
           }
+          
+          if (followUp.excludedRecipients && followUp.excludedRecipients.length > 0) {
+            query['email'] = { $nin: followUp.excludedRecipients };
+          }
 
           if (followUp.order === 1) {
-            query['mainEmail.status'] = 'sent';
-            query['mainEmail.sentAt'] = { $lte: cutoffDate };
+            query['mainEmail.sentAt'] = { $exists: true, $lte: cutoffDate };
             // Ensure this follow-up hasn't been sent yet
-            query['followUps'] = { $not: { $elemMatch: { order: 1 } } };
+            andConditions.push({ followUps: { $not: { $elemMatch: { order: 1 } } } });
           } else {
-            // Needs more complex querying in real scenario for order > 1
-            // For simplicity, checking if previous follow up was sent before cutoff
-            query['followUps'] = {
-              $elemMatch: {
-                order: followUp.order - 1,
-                sentAt: { $lte: cutoffDate }
+            andConditions.push({
+              followUps: {
+                $elemMatch: {
+                  order: followUp.order - 1,
+                  sentAt: { $lte: cutoffDate }
+                }
               }
-            };
+            });
+            andConditions.push({ followUps: { $not: { $elemMatch: { order: followUp.order } } } });
           }
+
+          if (andConditions.length > 0) query.$and = andConditions;
 
           const recipients = await Recipient.find(query).limit(50); // Batch of 50
           
           if (recipients.length === 0) {
-            // Might be completed for this order
-            // We should check if ALL eligible recipients have received it
-            // For now, let's keep it simple.
+            if (followUp.order === 1) {
+              const earliestMainEmail = await Recipient.findOne({
+                campaignId: campaign._id,
+                'mainEmail.sentAt': { $exists: true }
+              }).sort({ 'mainEmail.sentAt': 1 }).select('mainEmail.sentAt').lean();
+
+              if (earliestMainEmail?.mainEmail?.sentAt) {
+                const dueAt = new Date(earliestMainEmail.mainEmail.sentAt);
+                dueAt.setDate(dueAt.getDate() + followUp.delayDays);
+                if (dueAt > now) {
+                  if (dueAt < nextCheckAt) nextCheckAt = dueAt;
+                  continue;
+                }
+              }
+            }
+
+            followUp.status = 'completed';
+            followUp.completedAt = new Date();
+            await completeCampaignIfFollowUpsDone(campaign);
+            await campaign.save();
             continue;
+          }
+
+          if (followUp.status !== 'sending') {
+            followUp.status = 'sending';
+            await campaign.save();
           }
 
           for (const recipient of recipients) {
@@ -86,6 +158,11 @@ module.exports = function(agenda) {
                   threadId = prev.threadId;
                   replyToMessageId = prev.messageId;
                 }
+              }
+
+              if (followUp.inSameThread === false) {
+                threadId = undefined;
+                replyToMessageId = undefined;
               }
 
               const emailResult = await sendEmail({
@@ -117,11 +194,18 @@ module.exports = function(agenda) {
               console.error(`Failed to send follow up to ${recipient.email}:`, err);
             }
           }
+
+          if (recipients.length < 50) {
+            followUp.status = 'completed';
+            followUp.completedAt = new Date();
+            await completeCampaignIfFollowUpsDone(campaign);
+            await campaign.save();
+          }
         }
       }
 
       // Schedule next check
-      job.schedule('in 1 hour');
+      job.schedule(nextCheckAt);
       await job.save();
       done();
     } catch (err) {

@@ -3,6 +3,7 @@ const Recipient = require('../models/Recipient');
 const { sendEmail } = require('../services/emailService');
 const { replacePlaceholders } = require('../services/templateEngine');
 const { generateTrackingId } = require('../services/trackingService');
+const { getAutopilotWindowState, getZonedDayBounds } = require('../utils/timezone');
 
 module.exports = function(agenda) {
   agenda.define('send-campaign-emails', async (job, done) => {
@@ -10,8 +11,14 @@ module.exports = function(agenda) {
       const { campaignId } = job.attrs.data;
       const campaign = await Campaign.findById(campaignId);
 
-      if (!campaign || campaign.status !== 'sending') {
+      if (!campaign || !['scheduled', 'sending'].includes(campaign.status)) {
         return done(); // Job shouldn't run
+      }
+
+      if (campaign.status === 'scheduled') {
+        campaign.status = 'sending';
+        if (!campaign.startedAt) campaign.startedAt = new Date();
+        await campaign.save();
       }
 
       // Find pending recipients
@@ -37,45 +44,30 @@ module.exports = function(agenda) {
       if (campaign.schedule && campaign.schedule.autopilot && campaign.schedule.autopilot.enabled) {
         const auto = campaign.schedule.autopilot;
         const now = new Date();
-        
-        // Very basic day check based on server time (can be improved with timezone logic)
-        const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-        const currentDay = dayNames[now.getDay()];
-        
-        if (!auto.days[currentDay]) {
-          // Not an allowed day, reschedule for tomorrow
-          job.schedule('tomorrow at ' + auto.startTime);
+
+        const windowState = getAutopilotWindowState(auto, now);
+        if (!windowState.allowed) {
+          job.schedule(windowState.nextRun);
           await job.save();
           return done();
         }
 
-        // Check time window (simplified parsing)
-        const [startHr, startMin] = auto.startTime.split(':').map(Number);
-        const [endHr, endMin] = auto.endTime.split(':').map(Number);
-        const currentHr = now.getHours();
-        const currentMin = now.getMinutes();
-        
-        const currentTimeInMins = currentHr * 60 + currentMin;
-        const startTimeInMins = startHr * 60 + startMin;
-        const endTimeInMins = endHr * 60 + endMin;
+        if (auto.maxPerDay > 0) {
+          const { start, end } = getZonedDayBounds(now, windowState.timezone);
+          const sentToday = await Recipient.countDocuments({
+            campaignId,
+            'mainEmail.sentAt': { $gte: start, $lt: end }
+          });
 
-        if (currentTimeInMins < startTimeInMins) {
-          // Too early, reschedule for start time
-          const nextRun = new Date(now);
-          nextRun.setHours(startHr, startMin, 0, 0);
-          job.schedule(nextRun);
-          await job.save();
-          return done();
-        }
-
-        if (currentTimeInMins > endTimeInMins) {
-          // Too late, reschedule for tomorrow start time
-          const nextRun = new Date(now);
-          nextRun.setDate(nextRun.getDate() + 1);
-          nextRun.setHours(startHr, startMin, 0, 0);
-          job.schedule(nextRun);
-          await job.save();
-          return done();
+          if (sentToday >= auto.maxPerDay) {
+            const nextWindow = getAutopilotWindowState({
+              ...auto,
+              days: auto.days
+            }, new Date(end.getTime() + 1000));
+            job.schedule(nextWindow.nextRun || end);
+            await job.save();
+            return done();
+          }
         }
       }
 

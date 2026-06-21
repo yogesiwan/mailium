@@ -1,8 +1,93 @@
-import React from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Toggle from '../common/Toggle';
-import { Calendar, Settings } from 'lucide-react';
+import { Calendar, Settings, Globe2, Loader2 } from 'lucide-react';
+import toast from 'react-hot-toast';
+import api from '../../api';
+import { COMMON_TIMEZONES, formatDateTime, getBrowserTimezone } from '../../utils/timezones';
 
 const SettingsPanel = ({ campaign, setCampaign }) => {
+  const [settings, setSettings] = useState(null);
+  const [timezoneSaving, setTimezoneSaving] = useState(false);
+
+  const selectedTimezone = campaign.schedule?.timezone || campaign.schedule?.autopilot?.timezone || settings?.defaults?.timezone || getBrowserTimezone();
+  const timezoneOptions = useMemo(() => {
+    return COMMON_TIMEZONES.includes(selectedTimezone)
+      ? COMMON_TIMEZONES
+      : [selectedTimezone, ...COMMON_TIMEZONES];
+  }, [selectedTimezone]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchSettings = async () => {
+      try {
+        const res = await api.get('/settings');
+        if (!isMounted) return;
+        const fetchedSettings = res.data.settings;
+        setSettings(fetchedSettings);
+
+        if (!campaign.schedule?.timezone && fetchedSettings?.defaults?.timezone) {
+          setCampaign(prev => ({
+            ...prev,
+            schedule: {
+              ...prev.schedule,
+              timezone: fetchedSettings.defaults.timezone,
+              autopilot: {
+                ...prev.schedule?.autopilot,
+                timezone: fetchedSettings.defaults.timezone
+              }
+            }
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to load settings:', err);
+      }
+    };
+
+    fetchSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, [campaign.schedule?.timezone, setCampaign]);
+
+  const updateCampaignTimezone = async (timezone) => {
+    setCampaign(prev => ({
+      ...prev,
+      schedule: {
+        ...prev.schedule,
+        timezone,
+        autopilot: {
+          ...prev.schedule?.autopilot,
+          timezone
+        }
+      },
+      followUps: (prev.followUps || []).map(followUp => ({
+        ...followUp,
+        schedule: followUp.schedule
+          ? {
+              ...followUp.schedule,
+              timezone,
+              autopilot: {
+                ...followUp.schedule.autopilot,
+                timezone
+              }
+            }
+          : followUp.schedule
+      }))
+    }));
+
+    setTimezoneSaving(true);
+    try {
+      const res = await api.put('/settings', { defaults: { timezone } });
+      setSettings(res.data.settings);
+      toast.success('Default timezone saved');
+    } catch {
+      toast.error('Failed to save timezone');
+    } finally {
+      setTimezoneSaving(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-white text-gray-800">
       <div className="p-5 border-b border-gray-100">
@@ -11,7 +96,7 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
         </h3>
         <p className="text-xs text-gray-500 mb-4">
           {campaign.schedule?.sendAt 
-            ? `Scheduled for ${new Date(campaign.schedule.sendAt).toLocaleString()}` 
+            ? `Scheduled for ${formatDateTime(campaign.schedule.sendAt, selectedTimezone)}` 
             : 'Emails will be sent immediately.'}
         </p>
         <input 
@@ -22,10 +107,38 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
             const date = e.target.value ? new Date(e.target.value).toISOString() : null;
             setCampaign({
               ...campaign,
-              schedule: { ...campaign.schedule, sendAt: date }
+              schedule: { ...campaign.schedule, sendAt: date, timezone: selectedTimezone }
             });
           }}
         />
+
+        <div className="mt-4 space-y-2">
+          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+            <Globe2 size={13} /> Timezone
+          </label>
+          <select
+            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            value={selectedTimezone}
+            onChange={(e) => updateCampaignTimezone(e.target.value)}
+          >
+            {timezoneOptions.map(timezone => (
+              <option key={timezone} value={timezone}>{timezone}</option>
+            ))}
+          </select>
+          <div className="text-[11px] leading-5 text-gray-500">
+            <div>
+              Backend clock: {settings?.server?.now ? formatDateTime(settings.server.now, selectedTimezone) : 'Loading...'}
+            </div>
+            <div>
+              Server machine timezone: {settings?.server?.timezone || 'Loading...'}
+            </div>
+            {timezoneSaving && (
+              <div className="inline-flex items-center gap-1 text-blue-600">
+                <Loader2 size={11} className="animate-spin" /> Saving preference
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="p-5 border-b border-gray-100">
@@ -51,7 +164,7 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
                 <label className="block text-xs font-medium text-gray-500 mb-1.5">Max / day</label>
                 <input 
                   type="number" 
-                  value={campaign.schedule.autopilot.maxPerDay}
+              value={campaign.schedule.autopilot.maxPerDay}
                   onChange={(e) => setCampaign({
                     ...campaign,
                     schedule: { ...campaign.schedule, autopilot: { ...campaign.schedule.autopilot, maxPerDay: parseInt(e.target.value) || 0 } }
@@ -100,6 +213,13 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
               </div>
             </div>
 
+            <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              <Globe2 size={14} className="mt-0.5 shrink-0" />
+              <span>
+                Autopilot sends in {selectedTimezone}. Backend time is used for the actual scheduling check.
+              </span>
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-2">Sending Days</label>
               <div className="flex flex-wrap gap-2">
@@ -133,7 +253,7 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-gray-700">Track emails</span>
           <Toggle 
-            checked={campaign.settings.trackEmails}
+              checked={campaign.settings.trackEmails}
             onChange={(val) => setCampaign({
               ...campaign, 
               settings: { ...campaign.settings, trackEmails: val }

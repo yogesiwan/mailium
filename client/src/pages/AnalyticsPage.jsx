@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../api';
 import { BarChart2, MousePointerClick, MailOpen, Reply } from 'lucide-react';
 

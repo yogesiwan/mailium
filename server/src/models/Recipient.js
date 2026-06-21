@@ -14,6 +14,7 @@ const recipientSchema = new mongoose.Schema({
   mainEmail: {
     messageId: String,
     threadId: String,
+    gmailThreadId: String,
     sentAt: Date,
     trackingId: { type: String, index: true },
     opened: { type: Boolean, default: false },
@@ -33,12 +34,15 @@ const recipientSchema = new mongoose.Schema({
     order: Number,
     messageId: String,
     threadId: String,
+    gmailThreadId: String,
     sentAt: Date,
     trackingId: String,
     opened: { type: Boolean, default: false },
     openedAt: Date,
+    openCount: { type: Number, default: 0 },
     clicked: { type: Boolean, default: false },
     clickedAt: Date,
+    clickCount: { type: Number, default: 0 },
     replied: { type: Boolean, default: false },
     repliedAt: Date
   }]
