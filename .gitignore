@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+.mongo.env
 
 node_modules/
 dist/
@@ -14,4 +15,3 @@ server/uploads/
 client/dist/
 
 Docs/myCreds.md
-

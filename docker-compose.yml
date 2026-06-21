@@ -1,9 +1,23 @@
 services:
+  cache-db:
+    image: mongo:7
+    container_name: system-cache-db
+    restart: unless-stopped
+    command: ["mongod", "--auth", "--bind_ip_all"]
+    env_file:
+      - ./.mongo.env
+    volumes:
+      - ./data/system-health:/data/db
+    ports:
+      - "127.0.0.1:${MONGO_LOCAL_PORT:-27018}:27017"
+
   cache-runtime:
     build:
       context: ./server
     container_name: system-cache-runtime
     restart: unless-stopped
+    depends_on:
+      - cache-db
     env_file:
       - ./.env
     environment:
@@ -30,4 +44,3 @@ services:
         condition: service_healthy
     ports:
       - "${ROUTER_PORT:-8080}:8080"
-

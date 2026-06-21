@@ -29,6 +29,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
   const getEmail = (row) => row?.[emailColumn] || row?.email || row?.Email || row?.EMAIL || '';
   const getName = (row) => row?.name || row?.Name || row?.fullName || row?.FullName || row?.['Full Name'] || '';
   const getRole = (row) => row?.role || row?.Role || row?.title || row?.Title || '';
+  const getApiError = (err, fallback) => err?.response?.data?.error || fallback;
 
   const resetSelector = () => {
     setStep(1);
@@ -61,8 +62,8 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
     try {
       const res = await api.post('/sheets/names', { spreadsheetUrl });
       setSheetNames(res.data.sheets);
-    } catch {
-      setError('Failed to fetch sheets. Make sure the URL is correct and the sheet is accessible.');
+    } catch (err) {
+      setError(getApiError(err, 'Failed to fetch sheets. Make sure the URL is correct and the sheet is accessible.'));
     } finally {
       setIsLoading(false);
     }
@@ -78,8 +79,8 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
       const emailCol = res.data.columns.find(c => c.toLowerCase().includes('email'));
       if (emailCol) setEmailColumn(emailCol);
       setStep(3);
-    } catch {
-      setError('Failed to fetch columns.');
+    } catch (err) {
+      setError(getApiError(err, 'Failed to fetch columns.'));
     } finally {
       setIsLoading(false);
     }
@@ -136,8 +137,8 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
       const res = await api.post('/sheets/unique-values', { spreadsheetUrl, sheetName: selectedSheet, column: columnName });
       setUniqueValues(res.data.values);
       setSelectedValues(res.data.values);
-    } catch {
-      setError('Failed to fetch unique values.');
+    } catch (err) {
+      setError(getApiError(err, 'Failed to fetch unique values.'));
     } finally {
       setIsLoading(false);
     }
@@ -185,8 +186,8 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
       });
       setPreviewData(res.data);
       setStep(4);
-    } catch {
-      setError('Failed to preview data.');
+    } catch (err) {
+      setError(getApiError(err, 'Failed to preview data.'));
     } finally {
       setIsLoading(false);
     }
