@@ -3,6 +3,7 @@ import { Paperclip, X, Clock, MessageSquareOff, Trash2, Users, Calendar, Link, M
 import ComposeEditor from './ComposeEditor';
 import ExcludeRecipientsModal from './ExcludeRecipientsModal';
 import FollowUpScheduleModal from './FollowUpScheduleModal';
+import AttachmentViewer from './AttachmentViewer';
 import Toggle from '../common/Toggle';
 
 const FOLLOW_UP_STATUS_STYLES = {
@@ -352,25 +353,27 @@ const FollowUpEditor = ({
 
       {/* Attachments */}
       {followUp.attachments?.length > 0 && (
-        <div className="flex border-b border-gray-100 bg-gray-50">
-          <div className="w-24 px-4 py-3 text-sm font-medium text-gray-500 border-r border-gray-100">Attached:</div>
-          <div className="flex-1 px-4 py-3 flex flex-wrap gap-2">
-            {followUp.attachments.map((file, idx) => (
-              <div key={idx} className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-sm text-gray-700 shadow-sm">
-                <Paperclip size={14} className="text-gray-400" /> 
-                <span className="truncate max-w-[200px]">{file.name || file.originalName}</span>
-                {!isReadOnly && (
+        isReadOnly ? (
+          <AttachmentViewer attachments={followUp.attachments} />
+        ) : (
+          <div className="flex border-b border-gray-100 bg-gray-50">
+            <div className="w-24 px-4 py-3 text-sm font-medium text-gray-500 border-r border-gray-100">Attached:</div>
+            <div className="flex-1 px-4 py-3 flex flex-wrap gap-2">
+              {followUp.attachments.map((file, idx) => (
+                <div key={idx} className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-sm text-gray-700 shadow-sm">
+                  <Paperclip size={14} className="text-gray-400" /> 
+                  <span className="truncate max-w-[200px]">{file.name || file.originalName}</span>
                   <button 
                     className="text-gray-400 hover:text-red-500 transition-colors ml-1"
                     onClick={() => removeAttachment(idx)}
                   >
                     <X size={14} />
                   </button>
-                )}
-              </div>
-            ))}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )
       )}
 
       {/* Editor Body */}

@@ -5,6 +5,7 @@ import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCi
 import toast from 'react-hot-toast';
 import FollowUpEditor from '../components/campaign/FollowUpEditor';
 import ComposeEditor from '../components/campaign/ComposeEditor';
+import AttachmentViewer from '../components/campaign/AttachmentViewer';
 import Modal from '../components/common/Modal';
 import { formatDateTime } from '../utils/timezones';
 
@@ -782,6 +783,7 @@ const CampaignDetailPage = () => {
                 <ComposeEditor value={campaign.body} isReadOnly={true} />
                 <div className="absolute inset-0 bg-transparent cursor-not-allowed"></div>
               </div>
+              <AttachmentViewer attachments={campaign.attachments} />
             </div>
 
             {/* Follow Ups */}
