@@ -150,6 +150,17 @@ router.get('/admin/approve/:id', async (req, res, next) => {
       return res.status(404).send('User not found.');
     }
     
+    if (user.status === 'active') {
+      return res.send('User is already active.');
+    }
+
+    const activeUsersCount = await User.countDocuments({ status: 'active' });
+    const maxUsers = parseInt(process.env.MAX_USERS_LIMIT) || 5;
+    
+    if (activeUsersCount >= maxUsers) {
+      return res.status(403).send(`Cannot approve. Maximum active user limit (${maxUsers}) reached.`);
+    }
+    
     user.status = 'active';
     await user.save();
     
