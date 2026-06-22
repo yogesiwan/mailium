@@ -78,6 +78,7 @@ const NewCampaignPage = () => {
                 }
               }
             });
+            setAttachments(res.data.campaign.attachments || []);
             setActiveStep({ type: 'main', index: null });
 
             // Fetch existing recipients
@@ -227,6 +228,26 @@ const NewCampaignPage = () => {
     body: activeBody
   };
 
+  const uploadFilesIfNeeded = async (files) => {
+    if (!files || files.length === 0) return [];
+    
+    const existingFiles = files.filter(f => f.path);
+    const newFiles = files.filter(f => !f.path);
+    
+    if (newFiles.length === 0) return existingFiles;
+    
+    const formData = new FormData();
+    newFiles.forEach(file => {
+      formData.append('files', file);
+    });
+    
+    const res = await api.post('/uploads', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    
+    return [...existingFiles, ...res.data.files];
+  };
+
   const handleCreateAndSend = async () => {
     if (!campaign.subject || !campaign.body) {
       toast.error('Subject and body are required');
@@ -239,7 +260,21 @@ const NewCampaignPage = () => {
 
     setIsSending(true);
     try {
-      const campaignForSave = normalizeCampaignForSave(campaign);
+      const uploadedMainAttachments = await uploadFilesIfNeeded(attachments);
+      const uploadedFollowUps = await Promise.all(
+        (campaign.followUps || []).map(async (followUp) => ({
+          ...followUp,
+          attachments: await uploadFilesIfNeeded(followUp.attachments)
+        }))
+      );
+
+      const payloadWithAttachments = {
+        ...campaign,
+        attachments: uploadedMainAttachments,
+        followUps: uploadedFollowUps
+      };
+
+      const campaignForSave = normalizeCampaignForSave(payloadWithAttachments);
       const isExistingDraft = Boolean(campaign._id);
       const campRes = isExistingDraft
         ? await api.put(`/campaigns/${campaign._id}`, campaignForSave)
@@ -283,13 +318,16 @@ const NewCampaignPage = () => {
       // Use the first selected recipient for placeholder data, if available
       const sampleRecipientData = recipientsData.length > 0 ? recipientsData[0].data : {};
 
+      const uploadedTestAttachments = await uploadFilesIfNeeded(activeAttachments);
+
       await api.post('/campaigns/test-draft', {
         subject: activeSubject,
         body: activeBody,
         testEmail: testEmailAddress.trim(),
         recipientData: sampleRecipientData,
         fromName: campaign.from?.name || '',
-        fromEmail: campaign.from?.email || ''
+        fromEmail: campaign.from?.email || '',
+        attachments: uploadedTestAttachments
       });
       toast.success('Test email sent successfully');
       setIsTestModalOpen(false);

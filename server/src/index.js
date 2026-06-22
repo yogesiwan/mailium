@@ -33,6 +33,7 @@ app.use('/api/templates', require('./routes/templates'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/sheets', require('./routes/sheets'));
+app.use('/api/uploads', require('./routes/uploads'));
 app.use('/t', require('./routes/tracking'));
 
 // Basic route
