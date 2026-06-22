@@ -17,23 +17,34 @@ const LandingPage = () => {
     setError('');
   };
 
+  const [successMsg, setSuccessMsg] = useState('');
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    setSuccessMsg('');
 
     try {
       if (isLogin) {
         await login(formData.email, formData.password);
+        navigate('/campaigns');
       } else {
         if (formData.password !== formData.confirmPassword) {
           setError('Passwords do not match');
           setIsLoading(false);
           return;
         }
-        await register(formData.name, formData.email, formData.password);
+        const data = await register(formData.name, formData.email, formData.password);
+        if (data.pending) {
+          setSuccessMsg(data.message);
+          setIsLogin(true); // Switch to login view so they can login after approval
+          setFormData({ name: '', email: '', password: '', confirmPassword: '' });
+          setIsLoading(false);
+          return;
+        }
+        navigate('/campaigns');
       }
-      navigate('/campaigns');
     } catch (err) {
       setError(err.response?.data?.error || 'Authentication failed. Please try again.');
     } finally {
@@ -77,6 +88,12 @@ const LandingPage = () => {
               </p>
             </div>
 
+            {successMsg && (
+              <div className="mb-6 p-3 bg-emerald-50 text-emerald-700 text-sm rounded-lg border border-emerald-200 font-medium text-center">
+                {successMsg}
+              </div>
+            )}
+            
             {error && (
               <div className="mb-6 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100 font-medium text-center">
                 {error}

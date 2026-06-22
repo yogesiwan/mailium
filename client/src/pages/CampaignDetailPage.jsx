@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../api';
-import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch } from 'lucide-react';
+import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch, Zap, Timer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import FollowUpEditor from '../components/campaign/FollowUpEditor';
 import ComposeEditor from '../components/campaign/ComposeEditor';
@@ -434,6 +434,10 @@ const CampaignDetailPage = () => {
       ? 'Schedule follow-up'
       : `Schedule ${draftFollowUpCount || confirmableFollowUpCount} follow-ups`;
   const campaignTimezone = campaign.schedule?.timezone || campaign.schedule?.autopilot?.timezone;
+  const delayMinutes = campaign.schedule?.autopilot?.enabled
+    ? campaign.schedule?.autopilot?.delayMinutes
+    : campaign.schedule?.delayMinutes;
+    
   const filteredTrackingDetails = trackingDetails.filter(recipient => {
     if (trackingFilter === 'All') return true;
     if (trackingFilter === 'Opened') return recipient.opened;
@@ -479,6 +483,12 @@ const CampaignDetailPage = () => {
               <div className="text-sm text-gray-500 flex items-center gap-2">
                 <Clock size={14} /> Created: {campaign.startedAt || campaign.createdAt ? new Date(campaign.startedAt || campaign.createdAt).toLocaleString() : 'Not started'}
               </div>
+              
+              <div className={`text-sm font-medium px-2.5 py-0.5 rounded-full flex items-center gap-1.5 w-fit border ${!delayMinutes ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}>
+                {!delayMinutes ? <Zap size={14} className="text-indigo-600" /> : <Timer size={14} className="text-slate-600" />}
+                {!delayMinutes ? 'Burst mode (0s gap)' : `${delayMinutes} min gap between emails`}
+              </div>
+
               {campaign.status === 'scheduled' && campaign.schedule?.sendAt && (
                 <div className="text-sm font-medium text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 w-fit border border-amber-200">
                   <CalendarCheck size={14} /> Scheduled for: {new Date(campaign.schedule.sendAt).toLocaleString()}
@@ -586,6 +596,41 @@ const CampaignDetailPage = () => {
           <div className="text-xs text-gray-500 mt-1">{rates.replyRate || '0.0'}% reply rate</div>
         </div>
       </div>
+
+      {campaign.autopilotStatus && (
+        <div className="mb-8 card shadow-sm border-l-4 border-l-blue-500 overflow-hidden">
+          <div className="px-6 py-5 bg-white flex items-start sm:items-center gap-4">
+            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+              <Clock size={24} />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                Autopilot Status
+                {campaign.autopilotStatus.isRunning ? (
+                  <span className="inline-flex items-center gap-1.5 py-1 px-2.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Running
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 py-1 px-2.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    Paused
+                  </span>
+                )}
+              </h3>
+              <p className="text-sm text-gray-500 mt-1.5">
+                {campaign.autopilotStatus.maxPerDay > 0 ? `Daily limit: ${campaign.autopilotStatus.maxPerDay} emails.` : 'No daily limit set.'} 
+                {' '}<strong>{campaign.autopilotStatus.sentToday}</strong> sent today.
+                {!campaign.autopilotStatus.isRunning && campaign.autopilotStatus.nextRun && (
+                   <span className="ml-1 text-amber-600 font-medium">
+                     Resumes at {formatDateTime(campaign.autopilotStatus.nextRun)}
+                   </span>
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mb-8 card shadow-sm">
         <div className="px-6 py-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50 rounded-t-xl">

@@ -25,6 +25,11 @@ const userSchema = new mongoose.Schema({
   avatar: {
     type: String,
     default: '',
+  },
+  status: {
+    type: String,
+    enum: ['active', 'pending_admin_approval'],
+    default: 'active'
   }
 }, { timestamps: true });
 

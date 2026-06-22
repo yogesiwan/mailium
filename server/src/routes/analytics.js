@@ -172,6 +172,31 @@ router.get('/campaigns/:id', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
 
+    if (campaign.schedule?.autopilot?.enabled && ['scheduled', 'sending'].includes(campaign.status)) {
+      const { getAutopilotWindowState, getZonedDayBounds } = require('../utils/timezone');
+      
+      const auto = campaign.schedule.autopilot;
+      const now = new Date();
+      const windowState = getAutopilotWindowState(auto, now);
+      
+      let sentToday = 0;
+      if (auto.maxPerDay > 0) {
+        const { start, end } = getZonedDayBounds(now, windowState.timezone);
+        sentToday = await Recipient.countDocuments({
+          campaignId: campaign._id,
+          'mainEmail.sentAt': { $gte: start, $lt: end }
+        });
+      }
+      
+      campaign.autopilotStatus = {
+        isRunning: windowState.allowed && (auto.maxPerDay === 0 || sentToday < auto.maxPerDay),
+        sentToday,
+        maxPerDay: auto.maxPerDay || 0,
+        nextRun: windowState.nextRun || null,
+        reason: windowState.reason || null
+      };
+    }
+
     // Status breakdown
     const recipientBreakdown = await Recipient.aggregate([
       { $match: { campaignId: campaign._id } },
