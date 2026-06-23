@@ -190,10 +190,10 @@ router.get('/campaigns/:id', async (req, res, next) => {
       }
 
       if (!windowState.allowed) {
-        autopilotState = 'paused_window';
+        autopilotState = 'sleeping_window';
         autopilotNextRun = windowState.nextRun;
       } else if (auto.maxPerDay > 0 && sentToday >= auto.maxPerDay) {
-        autopilotState = 'paused_limit';
+        autopilotState = 'sleeping_limit';
         const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
         const { start: tomorrowStart } = getZonedDayBounds(tomorrow, windowState.timezone);
         const tomorrowWindowState = getAutopilotWindowState(auto, tomorrowStart);
@@ -209,9 +209,9 @@ router.get('/campaigns/:id', async (req, res, next) => {
           ? 'Campaign paused manually'
           : campaign.status === 'scheduled'
             ? 'Waiting for start date'
-            : autopilotState === 'paused_window' 
+            : autopilotState === 'sleeping_window' 
               ? 'Outside schedule' 
-              : autopilotState === 'paused_limit' 
+              : autopilotState === 'sleeping_limit' 
                 ? 'Daily limit reached' 
                 : null
       };

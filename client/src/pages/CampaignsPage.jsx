@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
-import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X, MoreVertical, Trash2, Check, Timer, Zap } from 'lucide-react';
+import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X, MoreVertical, Trash2, Check, Timer, Zap, Moon } from 'lucide-react';
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '../components/common/DropdownMenu';
 import AlertDialog from '../components/common/AlertDialog';
 import { Link } from 'react-router-dom';
@@ -57,8 +57,8 @@ const CampaignsPage = () => {
 
   const getDerivedStatus = (c) => {
     if (c.status === 'sending') {
-      if (c.autopilotState === 'paused_limit') return 'paused_limit';
-      if (c.autopilotState === 'paused_window') return 'paused_window';
+      if (c.autopilotState === 'sleeping_limit') return 'sleeping_limit';
+      if (c.autopilotState === 'sleeping_window') return 'sleeping_window';
       return 'running';
     }
     return c.status;
@@ -78,16 +78,16 @@ const CampaignsPage = () => {
             </span>
           </div>
         );
-      case 'paused_limit':
+      case 'sleeping_limit':
         return (
-          <div className="relative group cursor-help text-red-500" title="Paused (Daily limit reached)">
-            <Pause size={18} fill="currentColor" strokeWidth={0} />
+          <div className="relative group cursor-help text-indigo-500" title="Sleeping (Daily limit reached)">
+            <Moon size={18} />
           </div>
         );
-      case 'paused_window':
+      case 'sleeping_window':
         return (
-          <div className="relative group cursor-help text-red-500" title="Paused (Outside schedule)">
-            <Pause size={18} fill="currentColor" strokeWidth={0} />
+          <div className="relative group cursor-help text-indigo-500" title="Sleeping (Outside schedule)">
+            <Moon size={18} />
           </div>
         );
       case 'paused':
@@ -180,7 +180,7 @@ const CampaignsPage = () => {
     }
   };
 
-  const tabs = ['All', 'Draft', 'Scheduled', 'Running', 'Paused', 'Completed'];
+  const tabs = ['All', 'Draft', 'Scheduled', 'Running', 'Sleeping', 'Paused', 'Completed'];
 
   const resetFilters = () => {
     setSearchTerm('');
@@ -194,7 +194,8 @@ const CampaignsPage = () => {
     return campaigns.filter(c => {
       const derived = getDerivedStatus(c).toLowerCase();
       const tabStr = activeTab.toLowerCase();
-      if (tabStr === 'paused' && derived.startsWith('paused')) return true;
+      if (tabStr === 'sleeping' && derived.startsWith('sleeping')) return true;
+      if (tabStr === 'paused' && derived === 'paused') return true;
       return derived === tabStr;
     });
   }, [campaigns, activeTab]);
@@ -462,8 +463,8 @@ const CampaignsPage = () => {
                         </>
                       )}
                     </div>
-                    {['paused_limit', 'paused_window'].includes(camp.autopilotState) && camp.autopilotNextRun && (
-                      <div className="mt-2 text-[10px] text-red-500 font-medium leading-tight">
+                    {['sleeping_limit', 'sleeping_window'].includes(camp.autopilotState) && camp.autopilotNextRun && (
+                      <div className="mt-2 text-[10px] text-indigo-500 font-medium leading-tight">
                         Will resume at:<br/>
                         {new Date(camp.autopilotNextRun).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                       </div>

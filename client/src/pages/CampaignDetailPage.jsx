@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../api';
-import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch, Zap, Timer, Settings, FileText } from 'lucide-react';
+import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch, Zap, Timer, Settings, FileText, Moon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import FollowUpEditor from '../components/campaign/FollowUpEditor';
 import ComposeEditor from '../components/campaign/ComposeEditor';
@@ -431,8 +431,8 @@ const CampaignDetailPage = () => {
 
   const getDerivedStatus = (c) => {
     if (c.status === 'sending') {
-      if (c.autopilotState === 'paused_limit') return 'paused_limit';
-      if (c.autopilotState === 'paused_window') return 'paused_window';
+      if (c.autopilotState === 'sleeping_limit') return 'sleeping_limit';
+      if (c.autopilotState === 'sleeping_window') return 'sleeping_window';
       return 'running';
     }
     return c.status;
@@ -451,16 +451,16 @@ const CampaignDetailPage = () => {
             </span>
           </div>
         );
-      case 'paused_limit':
+      case 'sleeping_limit':
         return (
-          <div className="relative group cursor-help text-red-500 ml-3" title="Paused (Daily limit reached)">
-            <Pause size={24} fill="currentColor" strokeWidth={0} />
+          <div className="relative group cursor-help text-indigo-500 ml-3" title="Sleeping (Daily limit reached)">
+            <Moon size={24} />
           </div>
         );
-      case 'paused_window':
+      case 'sleeping_window':
         return (
-          <div className="relative group cursor-help text-red-500 ml-3" title="Paused (Outside schedule)">
-            <Pause size={24} fill="currentColor" strokeWidth={0} />
+          <div className="relative group cursor-help text-indigo-500 ml-3" title="Sleeping (Outside schedule)">
+            <Moon size={24} />
           </div>
         );
       case 'paused':
@@ -700,6 +700,11 @@ const CampaignDetailPage = () => {
                   <span className="inline-flex items-center gap-1.5 py-1 px-2.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                     Running
+                  </span>
+                ) : campaign.autopilotState?.startsWith('sleeping') ? (
+                  <span className="inline-flex items-center gap-1.5 py-1 px-2.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">
+                    <Moon size={12} className="text-indigo-500" />
+                    Sleeping
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 py-1 px-2.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">

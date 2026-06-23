@@ -134,7 +134,7 @@ router.get('/', async (req, res, next) => {
         const windowState = getAutopilotWindowState(auto, now);
         
         if (!windowState.allowed) {
-          autopilotState = 'paused_window';
+          autopilotState = 'sleeping_window';
           autopilotNextRun = windowState.nextRun;
         } else if (auto.maxPerDay > 0) {
           const { start, end } = getZonedDayBounds(now, windowState.timezone);
@@ -143,7 +143,7 @@ router.get('/', async (req, res, next) => {
             'mainEmail.sentAt': { $gte: start, $lt: end }
           });
           if (sentToday >= auto.maxPerDay) {
-            autopilotState = 'paused_limit';
+            autopilotState = 'sleeping_limit';
             // It will resume at the start of the next day in the autopilot timezone
             const { getZonedDayBounds: nextDayBounds } = require('../utils/timezone');
             const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -688,9 +688,8 @@ router.post('/:id/resume', async (req, res, next) => {
     const now = new Date();
     const sendAt = campaign.schedule?.sendAt ? new Date(campaign.schedule.sendAt) : now;
     const isFutureSchedule = Number.isFinite(sendAt.getTime()) && sendAt.getTime() > now.getTime() + 1000;
-    const isAutopilotEnabled = campaign.schedule?.autopilot?.enabled;
 
-    campaign.status = (isFutureSchedule || isAutopilotEnabled) ? 'scheduled' : 'sending';
+    campaign.status = isFutureSchedule ? 'scheduled' : 'sending';
     if (campaign.status === 'sending' && !campaign.startedAt) campaign.startedAt = now;
     await campaign.save();
     
