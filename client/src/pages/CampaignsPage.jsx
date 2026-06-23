@@ -71,7 +71,7 @@ const CampaignsPage = () => {
     switch(derivedStatus) {
       case 'running':
         return (
-          <div className="relative group cursor-help" title="Running">
+          <div className="relative group cursor-help text-green-500" title="Running">
             <span className="flex h-3 w-3 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
@@ -81,19 +81,19 @@ const CampaignsPage = () => {
       case 'paused_limit':
         return (
           <div className="relative group cursor-help text-red-500" title="Paused (Daily limit reached)">
-            <Pause size={18} fill="currentColor" />
+            <Pause size={18} fill="currentColor" strokeWidth={0} />
           </div>
         );
       case 'paused_window':
         return (
           <div className="relative group cursor-help text-red-500" title="Paused (Outside schedule)">
-            <Pause size={18} fill="currentColor" />
+            <Pause size={18} fill="currentColor" strokeWidth={0} />
           </div>
         );
       case 'paused':
         return (
           <div className="relative group cursor-help text-red-500" title="Paused">
-            <Pause size={18} fill="currentColor" />
+            <Pause size={18} fill="currentColor" strokeWidth={0} />
           </div>
         );
       case 'scheduled':
@@ -441,16 +441,16 @@ const CampaignsPage = () => {
                     )}
                     
                     {camp.schedule?.autopilot?.enabled && (
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md shadow-sm border border-indigo-100">
+                      <div className="flex flex-col items-center justify-center text-gray-400" title="Time gap between emails">
                         {camp.schedule.autopilot.delayMinutes > 0 ? (
                           <>
-                            <Timer size={12} />
-                            <span>{camp.schedule.autopilot.delayMinutes} min gap</span>
+                            <Clock size={14} />
+                            <span className="text-[10px] leading-none mt-1 font-medium">{camp.schedule.autopilot.delayMinutes} min</span>
                           </>
                         ) : (
                           <>
-                            <Zap size={12} />
-                            <span>Burst</span>
+                            <Zap size={14} />
+                            <span className="text-[10px] leading-none mt-1 font-medium text-amber-600">Burst</span>
                           </>
                         )}
                       </div>

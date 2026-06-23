@@ -444,55 +444,48 @@ const CampaignDetailPage = () => {
     switch(derivedStatus) {
       case 'running':
         return (
-          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-200" title="Running">
-            <span className="flex h-2.5 w-2.5 relative">
+          <div className="relative group cursor-help text-green-500 ml-3" title="Running">
+            <span className="flex h-4 w-4 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+              <span className="relative inline-flex rounded-full h-4 w-4 bg-green-500"></span>
             </span>
-            <span className="text-xs font-semibold uppercase tracking-wider">Running</span>
           </div>
         );
       case 'paused_limit':
         return (
-          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-red-50 text-red-700 rounded-full border border-red-200" title="Paused (Daily limit reached)">
-            <Pause size={14} fill="currentColor" />
-            <span className="text-xs font-semibold uppercase tracking-wider">Paused (Limit)</span>
+          <div className="relative group cursor-help text-red-500 ml-3" title="Paused (Daily limit reached)">
+            <Pause size={24} fill="currentColor" strokeWidth={0} />
           </div>
         );
       case 'paused_window':
         return (
-          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-red-50 text-red-700 rounded-full border border-red-200" title="Paused (Outside schedule)">
-            <Pause size={14} fill="currentColor" />
-            <span className="text-xs font-semibold uppercase tracking-wider">Paused (Schedule)</span>
+          <div className="relative group cursor-help text-red-500 ml-3" title="Paused (Outside schedule)">
+            <Pause size={24} fill="currentColor" strokeWidth={0} />
           </div>
         );
       case 'paused':
         return (
-          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-red-50 text-red-700 rounded-full border border-red-200" title="Paused">
-            <Pause size={14} fill="currentColor" />
-            <span className="text-xs font-semibold uppercase tracking-wider">Paused</span>
+          <div className="relative group cursor-help text-red-500 ml-3" title="Paused">
+            <Pause size={24} fill="currentColor" strokeWidth={0} />
           </div>
         );
       case 'scheduled':
         return (
-          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-amber-50 text-amber-700 rounded-full border border-amber-200" title="Scheduled">
-            <Clock size={14} />
-            <span className="text-xs font-semibold uppercase tracking-wider">Scheduled</span>
+          <div className="relative group cursor-help text-amber-500 ml-3" title="Scheduled">
+            <Clock size={24} />
           </div>
         );
       case 'completed':
         return (
-          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200" title="Completed">
-            <CheckCircle2 size={14} />
-            <span className="text-xs font-semibold uppercase tracking-wider">Completed</span>
+          <div className="relative group cursor-help text-emerald-500 ml-3" title="Completed">
+            <CheckCircle2 size={24} />
           </div>
         );
       case 'draft':
       default:
         return (
-          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-gray-100 text-gray-700 rounded-full border border-gray-200" title="Draft">
-            <FileText size={14} />
-            <span className="text-xs font-semibold uppercase tracking-wider">Draft</span>
+          <div className="relative group cursor-help text-gray-400 ml-3" title="Draft">
+            <FileText size={24} />
           </div>
         );
     }
@@ -569,14 +562,23 @@ const CampaignDetailPage = () => {
                 <Clock size={14} /> Created: {campaign.startedAt || campaign.createdAt ? new Date(campaign.startedAt || campaign.createdAt).toLocaleString() : 'Not started'}
               </div>
               
-              <div className={`text-sm font-medium px-2.5 py-0.5 rounded-full flex items-center gap-1.5 w-fit border ${!delayMinutes ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}>
-                {!delayMinutes ? <Zap size={14} className="text-indigo-600" /> : <Timer size={14} className="text-slate-600" />}
-                {!delayMinutes ? 'Burst mode (0s gap)' : `${delayMinutes} min gap between emails`}
+              <div className="flex items-center gap-1.5 text-gray-500" title={!delayMinutes ? 'Burst mode' : 'Time gap between emails'}>
+                {!delayMinutes ? (
+                  <>
+                    <Zap size={16} className="text-amber-500" />
+                    <span className="text-[12px] leading-none font-medium text-amber-600 mt-0.5">Burst</span>
+                  </>
+                ) : (
+                  <>
+                    <Clock size={16} />
+                    <span className="text-[12px] leading-none font-medium mt-0.5">{delayMinutes} min</span>
+                  </>
+                )}
               </div>
 
               {campaign.status === 'scheduled' && campaign.schedule?.sendAt && (
-                <div className="text-sm font-medium text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 w-fit border border-amber-200">
-                  <CalendarCheck size={14} /> Scheduled for: {new Date(campaign.schedule.sendAt).toLocaleString()}
+                <div className="text-sm font-medium text-amber-700 flex items-center gap-1.5">
+                  <Clock size={14} /> Scheduled for: {new Date(campaign.schedule.sendAt).toLocaleString()}
                 </div>
               )}
             </div>
