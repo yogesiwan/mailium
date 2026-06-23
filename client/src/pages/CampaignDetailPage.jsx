@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import FollowUpEditor from '../components/campaign/FollowUpEditor';
 import ComposeEditor from '../components/campaign/ComposeEditor';
 import AttachmentViewer from '../components/campaign/AttachmentViewer';
+import CampaignSettingsModal from '../components/campaign/CampaignSettingsModal';
 import Modal from '../components/common/Modal';
 import { formatDateTime } from '../utils/timezones';
 
@@ -49,6 +50,7 @@ const CampaignDetailPage = () => {
   const [templateDescription, setTemplateDescription] = useState('');
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [testEmailAddress, setTestEmailAddress] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [isBranching, setIsBranching] = useState(false);
@@ -281,15 +283,36 @@ const CampaignDetailPage = () => {
     setData(prev => ({ ...prev, campaign: { ...prev.campaign, followUps: newFollowUps } }));
   };
 
+  const uploadFilesIfNeeded = async (files) => {
+    if (!files || files.length === 0) return [];
+    
+    const existingFiles = files.filter(f => f.path);
+    const newFiles = files.filter(f => !f.path);
+    
+    if (newFiles.length === 0) return existingFiles;
+    
+    const formData = new FormData();
+    newFiles.forEach(file => {
+      formData.append('files', file);
+    });
+    
+    const res = await api.post('/uploads', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    
+    return [...existingFiles, ...res.data.files];
+  };
+
   const handleSaveSequence = async () => {
     setIsSavingSequence(true);
     try {
-      const followUps = (data.campaign.followUps || []).map((followUp, index) => ({
+      const followUps = await Promise.all((data.campaign.followUps || []).map(async (followUp, index) => ({
         ...followUp,
         order: index + 1,
         status: followUp.status || 'draft',
-        subject: followUp.inSameThread !== false ? data.campaign.subject || '' : followUp.subject
-      }));
+        subject: followUp.inSameThread !== false ? data.campaign.subject || '' : followUp.subject,
+        attachments: await uploadFilesIfNeeded(followUp.attachments)
+      })));
       await api.put(`/campaigns/${id}`, { followUps });
       clearSequenceDirty();
       await fetchCampaign({ silent: true });
@@ -302,12 +325,20 @@ const CampaignDetailPage = () => {
   };
 
   const handleScheduleFollowUps = async () => {
-    const followUps = (data.campaign.followUps || []).map((followUp, index) => ({
-      ...followUp,
-      order: index + 1,
-      status: followUp.status || 'draft',
-      subject: followUp.inSameThread !== false ? data.campaign.subject || '' : followUp.subject
-    }));
+    let followUps;
+    try {
+      followUps = await Promise.all((data.campaign.followUps || []).map(async (followUp, index) => ({
+        ...followUp,
+        order: index + 1,
+        status: followUp.status || 'draft',
+        subject: followUp.inSameThread !== false ? data.campaign.subject || '' : followUp.subject,
+        attachments: await uploadFilesIfNeeded(followUp.attachments)
+      })));
+    } catch (err) {
+      toast.error('Failed to upload attachments');
+      return;
+    }
+
     const confirmableFollowUps = followUps.filter(followUp => CONFIRMABLE_FOLLOW_UP_STATUSES.includes(followUp.status));
 
     if (confirmableFollowUps.length === 0) {
@@ -496,9 +527,13 @@ const CampaignDetailPage = () => {
                 </div>
               )}
             </div>
-            <div className="text-xs text-gray-500 mt-2 inline-flex items-center gap-1.5">
-              <RefreshCw size={12} className={isStatsRefreshing ? 'animate-spin' : ''} />
-              Auto-updates every 15s
+            <div className="text-xs flex gap-2 mt-2 items-center text-gray-500">
+              <button onClick={fetchCampaign} className="btn-outline flex items-center gap-1.5 px-2 py-1">
+                <RefreshCw size={14} className={isStatsRefreshing ? "animate-spin" : ""} /> Refresh
+              </button>
+              <button onClick={() => setIsSettingsModalOpen(true)} className="btn-outline flex items-center gap-1.5 px-2 py-1">
+                <Settings size={14} /> Edit Settings
+              </button>
               {lastUpdatedAt && <span>- Updated {lastUpdatedAt.toLocaleTimeString()}</span>}
             </div>
           </div>
@@ -914,7 +949,7 @@ const CampaignDetailPage = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-center text-xs text-gray-500 font-medium">
-                          {r.status === 'sent' && r.mainEmail?.sentAt ? formatDateTime(r.mainEmail.sentAt, campaignTimezone) : '-'}
+                          {r.mainEmail?.sentAt ? formatDateTime(r.mainEmail.sentAt, campaignTimezone) : '-'}
                         </td>
                         <td className="px-6 py-4 text-center">
                           {r.mainEmail?.opened ? <span className="text-emerald-500 flex justify-center"><CheckCircle2 size={18}/></span> : <span className="text-gray-300">-</span>}
@@ -1078,6 +1113,22 @@ const CampaignDetailPage = () => {
           </div>
         </div>
       </Modal>
+      <CampaignSettingsModal 
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        campaign={data?.campaign}
+        onUpdate={(updatedCampaign) => {
+          setData(prev => ({
+            ...prev,
+            campaign: {
+              ...prev.campaign,
+              schedule: updatedCampaign.schedule,
+              companyName: updatedCampaign.companyName,
+              roleName: updatedCampaign.roleName
+            }
+          }));
+        }}
+      />
     </div>
   );
 };

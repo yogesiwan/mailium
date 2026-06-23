@@ -168,6 +168,39 @@ router.get('/filters', async (req, res, next) => {
     next(err);
   }
 });
+// @route   GET /api/campaigns/metadata/options
+// @desc    Get unique company and role names for combobox
+router.get('/metadata/options', async (req, res, next) => {
+  try {
+    const companies = await Campaign.distinct('companyName', { user: req.user._id, companyName: { $nin: [null, ''] } });
+    const roles = await Campaign.distinct('roleName', { user: req.user._id, roleName: { $nin: [null, ''] } });
+    res.json({
+      success: true,
+      companies: companies.sort(),
+      roles: roles.sort()
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+
+// @route   PATCH /api/campaigns/:id/schedule
+// @desc    Update campaign schedule and metadata
+router.patch('/:id/schedule', async (req, res, next) => {
+  try {
+    const { schedule, companyName, roleName } = req.body;
+    const campaign = await Campaign.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id },
+      { $set: { schedule, companyName, roleName } },
+      { new: true, runValidators: true }
+    );
+    if (!campaign) return res.status(404).json({ success: false, error: 'Campaign not found' });
+    res.json({ success: true, campaign });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // @route   GET /api/campaigns/:id
 // @desc    Get single campaign
@@ -645,7 +678,7 @@ router.post('/:id/test', async (req, res, next) => {
     const body = replacePlaceholders(campaign.body, data);
     const to = testEmail || campaign.from.email;
 
-    await sendTestEmail(to, subject, body, campaign.from.name, campaign.from.email, req.user._id);
+    await sendTestEmail(to, subject, body, campaign.from.name, campaign.from.email, req.user._id, campaign.attachments);
 
     res.json({ success: true, message: 'Test email sent successfully' });
   } catch (err) {
@@ -657,7 +690,7 @@ router.post('/:id/test', async (req, res, next) => {
 // @desc    Send a test email for an unsaved draft campaign
 router.post('/test-draft', async (req, res, next) => {
   try {
-    const { subject, body, testEmail, recipientData, fromName, fromEmail } = req.body;
+    const { subject, body, testEmail, recipientData, fromName, fromEmail, attachments } = req.body;
     
     if (!subject || !body || !testEmail) {
       return res.status(400).json({ success: false, error: 'Subject, body, and test email are required' });
@@ -667,7 +700,7 @@ router.post('/test-draft', async (req, res, next) => {
     const parsedSubject = replacePlaceholders(subject, data);
     const parsedBody = replacePlaceholders(body, data);
 
-    await sendTestEmail(testEmail, parsedSubject, parsedBody, fromName || 'Mailium User', fromEmail || process.env.GOOGLE_USER_EMAIL, req.user._id);
+    await sendTestEmail(testEmail, parsedSubject, parsedBody, fromName || 'Mailium User', fromEmail || process.env.GOOGLE_USER_EMAIL, req.user._id, attachments);
 
     res.json({ success: true, message: 'Test draft email sent successfully' });
   } catch (err) {
@@ -727,6 +760,29 @@ router.post('/:id/duplicate', async (req, res, next) => {
     }));
 
     const newCampaign = await Campaign.create(newCampaignData);
+
+    // Fetch existing recipients
+    const originalRecipients = await Recipient.find({ campaignId: original._id });
+    if (originalRecipients && originalRecipients.length > 0) {
+      const newRecipients = originalRecipients.map(r => {
+        const rObj = r.toObject();
+        delete rObj._id;
+        delete rObj.createdAt;
+        delete rObj.updatedAt;
+        delete rObj.__v;
+        
+        rObj.campaignId = newCampaign._id;
+        rObj.status = 'pending';
+        rObj.mainEmail = undefined;
+        rObj.followUps = undefined;
+        return rObj;
+      });
+      
+      await Recipient.insertMany(newRecipients);
+      newCampaign.stats.totalRecipients = newRecipients.length;
+      await newCampaign.save();
+    }
+
     res.json({ success: true, campaign: newCampaign });
   } catch (err) {
     next(err);

@@ -141,13 +141,14 @@ const sendEmail = async (options, userId) => {
 /**
  * Sends a test email without tracking
  */
-const sendTestEmail = async (to, subject, html, fromName, fromEmail, userId) => {
+const sendTestEmail = async (to, subject, html, fromName, fromEmail, userId, attachments = []) => {
   return sendEmail({
     to,
     subject: `[TEST] ${subject}`,
     html,
     fromName,
     fromEmail,
+    attachments,
     trackEmails: false
   }, userId);
 };

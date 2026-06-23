@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Toggle from '../common/Toggle';
-import { Calendar, Settings, Globe2, Loader2 } from 'lucide-react';
+import Combobox from '../common/Combobox';
+import { Calendar, Settings, Globe2, Loader2, Building2, Briefcase } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api';
 import { COMMON_TIMEZONES, formatDateTime, getBrowserTimezone } from '../../utils/timezones';
@@ -8,6 +9,7 @@ import { COMMON_TIMEZONES, formatDateTime, getBrowserTimezone } from '../../util
 const SettingsPanel = ({ campaign, setCampaign }) => {
   const [settings, setSettings] = useState(null);
   const [timezoneSaving, setTimezoneSaving] = useState(false);
+  const [metadataOptions, setMetadataOptions] = useState({ companies: [], roles: [] });
 
   const selectedTimezone = campaign.schedule?.timezone || campaign.schedule?.autopilot?.timezone || settings?.defaults?.timezone || getBrowserTimezone();
   const timezoneOptions = useMemo(() => {
@@ -19,12 +21,21 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
   useEffect(() => {
     let isMounted = true;
 
-    const fetchSettings = async () => {
+    const fetchSettingsAndMetadata = async () => {
       try {
-        const res = await api.get('/settings');
+        const [settingsRes, metadataRes] = await Promise.all([
+          api.get('/settings'),
+          api.get('/campaigns/metadata/options').catch(() => ({ data: { companies: [], roles: [] } }))
+        ]);
+        
         if (!isMounted) return;
-        const fetchedSettings = res.data.settings;
+        
+        const fetchedSettings = settingsRes.data.settings;
         setSettings(fetchedSettings);
+        setMetadataOptions({
+          companies: metadataRes.data?.companies || [],
+          roles: metadataRes.data?.roles || []
+        });
 
         if (!campaign.schedule?.timezone && fetchedSettings?.defaults?.timezone) {
           setCampaign(prev => ({
@@ -44,7 +55,7 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
       }
     };
 
-    fetchSettings();
+    fetchSettingsAndMetadata();
     return () => {
       isMounted = false;
     };
@@ -107,7 +118,12 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
             const date = e.target.value ? new Date(e.target.value).toISOString() : null;
             setCampaign({
               ...campaign,
-              schedule: { ...campaign.schedule, sendAt: date, timezone: selectedTimezone }
+              schedule: { 
+                ...campaign.schedule, 
+                sendAt: date, 
+                timezone: selectedTimezone,
+                ...(date ? { autopilot: { ...campaign.schedule?.autopilot, enabled: false } } : {})
+              }
             });
           }}
         />
@@ -166,7 +182,11 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
             checked={campaign.schedule?.autopilot?.enabled || false}
             onChange={(val) => setCampaign({
               ...campaign, 
-              schedule: { ...campaign.schedule, autopilot: { ...campaign.schedule?.autopilot, enabled: val } }
+              schedule: { 
+                ...campaign.schedule, 
+                autopilot: { ...campaign.schedule?.autopilot, enabled: val },
+                ...(val ? { sendAt: null } : {})
+              }
             })}
           />
         </div>
@@ -280,24 +300,24 @@ const SettingsPanel = ({ campaign, setCampaign }) => {
       <div className="p-5">
         <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wider">Metadata (Optional)</h3>
         <div className="space-y-4">
-          <div>
+          <div className="z-20 relative">
             <label className="block text-xs font-medium text-gray-500 mb-1.5">Company Name</label>
-            <input 
-              type="text" 
-              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+            <Combobox 
               value={campaign.companyName}
-              onChange={(e) => setCampaign({...campaign, companyName: e.target.value})}
+              onChange={(val) => setCampaign({...campaign, companyName: val})}
+              options={metadataOptions.companies}
               placeholder="e.g. Google"
+              icon={Building2}
             />
           </div>
-          <div>
+          <div className="z-10 relative mt-4">
             <label className="block text-xs font-medium text-gray-500 mb-1.5">Role Name</label>
-            <input 
-              type="text" 
-              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+            <Combobox 
               value={campaign.roleName}
-              onChange={(e) => setCampaign({...campaign, roleName: e.target.value})}
+              onChange={(val) => setCampaign({...campaign, roleName: val})}
+              options={metadataOptions.roles}
               placeholder="e.g. SDE-2"
+              icon={Briefcase}
             />
           </div>
         </div>

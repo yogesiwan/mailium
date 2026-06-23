@@ -83,7 +83,7 @@ const NewCampaignPage = () => {
 
             // Fetch existing recipients
             try {
-              const recRes = await api.get(`/campaigns/${id}/recipients`);
+              const recRes = await api.get(`/campaigns/${id}/recipients?limit=1000000`);
               if (recRes.data.recipients && recRes.data.recipients.length > 0) {
                 setRecipientsData(recRes.data.recipients);
                 
