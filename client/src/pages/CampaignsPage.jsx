@@ -439,34 +439,37 @@ const CampaignsPage = () => {
                         <UserRound size={12} /> {camp.roleName}
                       </span>
                     )}
-                    
-                    {camp.schedule?.autopilot?.enabled && (
-                      <div className="flex flex-col items-center justify-center text-gray-400" title="Time gap between emails">
-                        {camp.schedule.autopilot.delayMinutes > 0 ? (
-                          <>
-                            <Clock size={14} />
-                            <span className="text-[10px] leading-none mt-1 font-medium">{camp.schedule.autopilot.delayMinutes} min</span>
-                          </>
-                        ) : (
-                          <>
-                            <Zap size={14} />
-                            <span className="text-[10px] leading-none mt-1 font-medium text-amber-600">Burst</span>
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {camp.status === 'scheduled' && camp.schedule?.sendAt ? (
+                    {camp.status === 'scheduled' && camp.schedule?.sendAt && (
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 rounded-md shadow-sm border border-amber-100">
                         <Clock size={12} /> {new Date(camp.schedule.sendAt).toLocaleString()}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400 ml-1">
-                        Created {new Date(camp.createdAt).toLocaleDateString()}
                       </span>
                     )}
                   </div>
                 </div>
+
+                {camp.schedule?.autopilot?.enabled && (
+                  <div className="hidden sm:flex flex-col items-center justify-center text-center px-6 border-l border-r border-gray-100 min-w-[140px]">
+                    <div className="flex flex-col items-center justify-center text-gray-400" title="Time gap between emails">
+                      {camp.schedule.autopilot.delayMinutes > 0 ? (
+                        <>
+                          <Clock size={16} />
+                          <span className="text-[11px] leading-none mt-1.5 font-medium">{camp.schedule.autopilot.delayMinutes} min</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap size={16} className="text-amber-500" />
+                          <span className="text-[11px] leading-none mt-1.5 font-medium text-amber-600">Burst</span>
+                        </>
+                      )}
+                    </div>
+                    {['paused_limit', 'paused_window'].includes(camp.autopilotState) && camp.autopilotNextRun && (
+                      <div className="mt-2 text-[10px] text-red-500 font-medium leading-tight">
+                        Will resume at:<br/>
+                        {new Date(camp.autopilotNextRun).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="w-full sm:w-64 px-4 hidden md:block">
                   <div className="flex justify-between text-sm mb-1.5">
@@ -524,6 +527,10 @@ const CampaignsPage = () => {
                       <Trash2 size={16} /> Delete
                     </DropdownMenuItem>
                   </DropdownMenu>
+                </div>
+
+                <div className="absolute bottom-1.5 right-3 text-[9px] font-medium text-gray-400 opacity-70">
+                  Created {new Date(camp.createdAt).toLocaleDateString()}
                 </div>
               </div>
             );

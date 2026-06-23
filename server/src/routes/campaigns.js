@@ -128,11 +128,14 @@ router.get('/', async (req, res, next) => {
     const now = new Date();
     const campaigns = await Promise.all(rawCampaigns.map(async (camp) => {
       let autopilotState = 'active';
+      let autopilotNextRun = null;
       if (camp.status === 'sending' && camp.schedule?.autopilot?.enabled) {
         const auto = camp.schedule.autopilot;
         const windowState = getAutopilotWindowState(auto, now);
+        
         if (!windowState.allowed) {
           autopilotState = 'paused_window';
+          autopilotNextRun = windowState.nextRun;
         } else if (auto.maxPerDay > 0) {
           const { start, end } = getZonedDayBounds(now, windowState.timezone);
           const sentToday = await Recipient.countDocuments({
@@ -141,10 +144,17 @@ router.get('/', async (req, res, next) => {
           });
           if (sentToday >= auto.maxPerDay) {
             autopilotState = 'paused_limit';
+            // It will resume at the start of the next day in the autopilot timezone
+            const { getZonedDayBounds: nextDayBounds } = require('../utils/timezone');
+            const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+            const { start: tomorrowStart } = nextDayBounds(tomorrow, windowState.timezone);
+            // Then check the window state at tomorrowStart
+            const tomorrowWindowState = getAutopilotWindowState(auto, tomorrowStart);
+            autopilotNextRun = tomorrowWindowState.allowed ? tomorrowStart : tomorrowWindowState.nextRun;
           }
         }
       }
-      return { ...camp.toObject(), autopilotState };
+      return { ...camp.toObject(), autopilotState, autopilotNextRun };
     }));
 
     const total = await Campaign.countDocuments(query);

@@ -173,26 +173,43 @@ router.get('/campaigns/:id', async (req, res, next) => {
     }
 
     let autopilotState = 'active';
+    let autopilotNextRun = null;
     if (campaign.status === 'sending' && campaign.schedule?.autopilot?.enabled) {
       const { getAutopilotWindowState, getZonedDayBounds } = require('../utils/timezone');
       const auto = campaign.schedule.autopilot;
       const now = new Date();
       const windowState = getAutopilotWindowState(auto, now);
       
-      if (!windowState.allowed) {
-        autopilotState = 'paused_window';
-      } else if (auto.maxPerDay > 0) {
+      let sentToday = 0;
+      if (auto.maxPerDay > 0) {
         const { start, end } = getZonedDayBounds(now, windowState.timezone);
-        const sentToday = await Recipient.countDocuments({
+        sentToday = await Recipient.countDocuments({
           campaignId: campaign._id,
           'mainEmail.sentAt': { $gte: start, $lt: end }
         });
-        if (sentToday >= auto.maxPerDay) {
-          autopilotState = 'paused_limit';
-        }
       }
+
+      if (!windowState.allowed) {
+        autopilotState = 'paused_window';
+        autopilotNextRun = windowState.nextRun;
+      } else if (auto.maxPerDay > 0 && sentToday >= auto.maxPerDay) {
+        autopilotState = 'paused_limit';
+        const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+        const { start: tomorrowStart } = getZonedDayBounds(tomorrow, windowState.timezone);
+        const tomorrowWindowState = getAutopilotWindowState(auto, tomorrowStart);
+        autopilotNextRun = tomorrowWindowState.allowed ? tomorrowStart : tomorrowWindowState.nextRun;
+      }
+
+      campaign.autopilotStatus = {
+        isRunning: autopilotState === 'active',
+        sentToday,
+        maxPerDay: auto.maxPerDay || 0,
+        nextRun: autopilotNextRun,
+        reason: autopilotState === 'paused_window' ? 'Outside schedule' : autopilotState === 'paused_limit' ? 'Daily limit reached' : null
+      };
     }
     campaign.autopilotState = autopilotState;
+    campaign.autopilotNextRun = autopilotNextRun;
 
     // Status breakdown
     const recipientBreakdown = await Recipient.aggregate([

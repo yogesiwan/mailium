@@ -557,11 +557,7 @@ const CampaignDetailPage = () => {
               )}
               {getStatusBadge(campaign)}
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-2">
-              <div className="text-sm text-gray-500 flex items-center gap-2">
-                <Clock size={14} /> Created: {campaign.startedAt || campaign.createdAt ? new Date(campaign.startedAt || campaign.createdAt).toLocaleString() : 'Not started'}
-              </div>
-              
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-2 w-full">
               <div className="flex items-center gap-1.5 text-gray-500" title={!delayMinutes ? 'Burst mode' : 'Time gap between emails'}>
                 {!delayMinutes ? (
                   <>
@@ -581,6 +577,10 @@ const CampaignDetailPage = () => {
                   <Clock size={14} /> Scheduled for: {new Date(campaign.schedule.sendAt).toLocaleString()}
                 </div>
               )}
+
+              <div className="text-sm text-gray-500 flex items-center gap-2 sm:ml-auto">
+                <Clock size={14} /> Created: {campaign.startedAt || campaign.createdAt ? new Date(campaign.startedAt || campaign.createdAt).toLocaleString() : 'Not started'}
+              </div>
             </div>
             <div className="text-xs flex gap-2 mt-2 items-center text-gray-500">
               <button onClick={fetchCampaign} className="btn-outline flex items-center gap-1.5 px-2 py-1">
