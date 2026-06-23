@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../api';
-import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch, Zap, Timer, Settings } from 'lucide-react';
+import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch, Zap, Timer, Settings, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import FollowUpEditor from '../components/campaign/FollowUpEditor';
 import ComposeEditor from '../components/campaign/ComposeEditor';
@@ -429,20 +429,73 @@ const CampaignDetailPage = () => {
     }
   };
 
-  const getStatusBadge = (status) => {
-    const styles = {
-      draft: 'bg-gray-100 text-gray-700',
-      scheduled: 'bg-amber-100 text-amber-700',
-      sending: 'bg-blue-100 text-blue-700',
-      paused: 'bg-red-100 text-red-700',
-      completed: 'bg-emerald-100 text-emerald-700',
-      failed: 'bg-red-100 text-red-800'
-    };
-    return (
-      <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${styles[status] || styles.draft}`}>
-        {status}
-      </span>
-    );
+  const getDerivedStatus = (c) => {
+    if (c.status === 'sending') {
+      if (c.autopilotState === 'paused_limit') return 'paused_limit';
+      if (c.autopilotState === 'paused_window') return 'paused_window';
+      return 'running';
+    }
+    return c.status;
+  };
+
+  const getStatusBadge = (camp) => {
+    const derivedStatus = getDerivedStatus(camp);
+    
+    switch(derivedStatus) {
+      case 'running':
+        return (
+          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-200" title="Running">
+            <span className="flex h-2.5 w-2.5 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Running</span>
+          </div>
+        );
+      case 'paused_limit':
+        return (
+          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-red-50 text-red-700 rounded-full border border-red-200" title="Paused (Daily limit reached)">
+            <Pause size={14} fill="currentColor" />
+            <span className="text-xs font-semibold uppercase tracking-wider">Paused (Limit)</span>
+          </div>
+        );
+      case 'paused_window':
+        return (
+          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-red-50 text-red-700 rounded-full border border-red-200" title="Paused (Outside schedule)">
+            <Pause size={14} fill="currentColor" />
+            <span className="text-xs font-semibold uppercase tracking-wider">Paused (Schedule)</span>
+          </div>
+        );
+      case 'paused':
+        return (
+          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-red-50 text-red-700 rounded-full border border-red-200" title="Paused">
+            <Pause size={14} fill="currentColor" />
+            <span className="text-xs font-semibold uppercase tracking-wider">Paused</span>
+          </div>
+        );
+      case 'scheduled':
+        return (
+          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-amber-50 text-amber-700 rounded-full border border-amber-200" title="Scheduled">
+            <Clock size={14} />
+            <span className="text-xs font-semibold uppercase tracking-wider">Scheduled</span>
+          </div>
+        );
+      case 'completed':
+        return (
+          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200" title="Completed">
+            <CheckCircle2 size={14} />
+            <span className="text-xs font-semibold uppercase tracking-wider">Completed</span>
+          </div>
+        );
+      case 'draft':
+      default:
+        return (
+          <div className="relative group cursor-help flex items-center gap-2 px-3 py-1 bg-gray-100 text-gray-700 rounded-full border border-gray-200" title="Draft">
+            <FileText size={14} />
+            <span className="text-xs font-semibold uppercase tracking-wider">Draft</span>
+          </div>
+        );
+    }
   };
 
   if (loading) return (
@@ -509,7 +562,7 @@ const CampaignDetailPage = () => {
                   </button>
                 </h1>
               )}
-              {getStatusBadge(campaign.status)}
+              {getStatusBadge(campaign)}
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-2">
               <div className="text-sm text-gray-500 flex items-center gap-2">
@@ -1127,6 +1180,7 @@ const CampaignDetailPage = () => {
               roleName: updatedCampaign.roleName
             }
           }));
+          fetchCampaign({ silent: true });
         }}
       />
     </div>

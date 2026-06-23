@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
-import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X, MoreVertical, Trash2, Check } from 'lucide-react';
+import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X, MoreVertical, Trash2, Check, Timer, Zap } from 'lucide-react';
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '../components/common/DropdownMenu';
 import AlertDialog from '../components/common/AlertDialog';
 import { Link } from 'react-router-dom';
@@ -55,33 +55,67 @@ const CampaignsPage = () => {
     fetchFilters();
   }, []);
 
-  const getStatusIcon = (status) => {
-    switch(status) {
-      case 'sending': return <Play size={14} />;
-      case 'paused': return <Pause size={14} />;
-      case 'completed': return <CheckCircle2 size={14} />;
-      case 'draft': return <FileText size={14} />;
-      case 'scheduled': return <Clock size={14} />;
-      default: return null;
+  const getDerivedStatus = (c) => {
+    if (c.status === 'sending') {
+      if (c.autopilotState === 'paused_limit') return 'paused_limit';
+      if (c.autopilotState === 'paused_window') return 'paused_window';
+      return 'running';
     }
+    return c.status;
   };
 
-  const getStatusBadge = (status) => {
-    const styles = {
-      draft: 'bg-gray-100 text-gray-700 border-gray-200',
-      scheduled: 'bg-amber-100 text-amber-700 border-amber-200',
-      sending: 'bg-blue-100 text-blue-700 border-blue-200',
-      paused: 'bg-red-100 text-red-700 border-red-200',
-      completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-      failed: 'bg-red-100 text-red-800 border-red-200'
-    };
+  const getStatusBadge = (camp) => {
+    const derivedStatus = getDerivedStatus(camp);
     
-    return (
-      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${styles[status] || styles.draft} flex items-center gap-1 capitalize`}>
-        {getStatusIcon(status)}
-        {status}
-      </span>
-    );
+    // Status mapping for simple icons without text
+    switch(derivedStatus) {
+      case 'running':
+        return (
+          <div className="relative group cursor-help" title="Running">
+            <span className="flex h-3 w-3 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+            </span>
+          </div>
+        );
+      case 'paused_limit':
+        return (
+          <div className="relative group cursor-help text-red-500" title="Paused (Daily limit reached)">
+            <Pause size={18} fill="currentColor" />
+          </div>
+        );
+      case 'paused_window':
+        return (
+          <div className="relative group cursor-help text-red-500" title="Paused (Outside schedule)">
+            <Pause size={18} fill="currentColor" />
+          </div>
+        );
+      case 'paused':
+        return (
+          <div className="relative group cursor-help text-red-500" title="Paused">
+            <Pause size={18} fill="currentColor" />
+          </div>
+        );
+      case 'scheduled':
+        return (
+          <div className="relative group cursor-help text-amber-500" title="Scheduled">
+            <Clock size={18} />
+          </div>
+        );
+      case 'completed':
+        return (
+          <div className="relative group cursor-help text-emerald-500" title="Completed">
+            <CheckCircle2 size={18} />
+          </div>
+        );
+      case 'draft':
+      default:
+        return (
+          <div className="relative group cursor-help text-gray-400" title="Draft">
+            <FileText size={18} />
+          </div>
+        );
+    }
   };
 
   const handleAction = async (campaignId, action) => {
@@ -146,7 +180,7 @@ const CampaignsPage = () => {
     }
   };
 
-  const tabs = ['All', 'Draft', 'Scheduled', 'Sending', 'Paused', 'Completed'];
+  const tabs = ['All', 'Draft', 'Scheduled', 'Running', 'Paused', 'Completed'];
 
   const resetFilters = () => {
     setSearchTerm('');
@@ -157,7 +191,12 @@ const CampaignsPage = () => {
 
   const filteredCampaigns = useMemo(() => {
     if (activeTab === 'All') return campaigns;
-    return campaigns.filter(c => c.status.toLowerCase() === activeTab.toLowerCase());
+    return campaigns.filter(c => {
+      const derived = getDerivedStatus(c).toLowerCase();
+      const tabStr = activeTab.toLowerCase();
+      if (tabStr === 'paused' && derived.startsWith('paused')) return true;
+      return derived === tabStr;
+    });
   }, [campaigns, activeTab]);
 
   const groupedCampaigns = useMemo(() => {
@@ -208,7 +247,12 @@ const CampaignsPage = () => {
             >
               {tab}
               <span className="ml-2 text-xs py-0.5 px-2 rounded-full bg-gray-100 text-gray-600 font-normal">
-                {tab === 'All' ? campaigns.length : campaigns.filter(c => c.status.toLowerCase() === tab.toLowerCase()).length}
+                {tab === 'All' ? campaigns.length : campaigns.filter(c => {
+                  const derived = getDerivedStatus(c).toLowerCase();
+                  const tabStr = tab.toLowerCase();
+                  if (tabStr === 'paused' && derived.startsWith('paused')) return true;
+                  return derived === tabStr;
+                }).length}
               </span>
             </button>
           ))}
@@ -374,35 +418,51 @@ const CampaignsPage = () => {
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
-                    <h3 className="text-lg font-medium text-gray-900 truncate">
+                    <h3 className="text-lg font-bold text-gray-800 truncate" style={{ textShadow: '1px 1px 0px rgba(255,255,255,0.8)' }}>
                       <Link to={`/campaigns/${camp._id}`} className="hover:text-blue-600 hover:underline">
                         {camp.name}
                       </Link>
-
                     </h3>
-                    {getStatusBadge(camp.status)}
+                    {getStatusBadge(camp)}
                   </div>
-                  <div className="text-sm text-gray-500 truncate mb-1">
-                    Subject: {camp.subject || <span className="italic">No subject</span>}
+                  <div className="text-sm text-gray-500 truncate mb-2 font-medium">
+                    {camp.subject || <span className="italic">No subject</span>}
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 font-medium">
                     {camp.companyName && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-600 rounded-md shadow-sm border border-gray-200">
                         <Building2 size={12} /> {camp.companyName}
                       </span>
                     )}
                     {camp.roleName && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md shadow-sm border border-blue-100">
                         <UserRound size={12} /> {camp.roleName}
                       </span>
                     )}
+                    
+                    {camp.schedule?.autopilot?.enabled && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md shadow-sm border border-indigo-100">
+                        {camp.schedule.autopilot.delayMinutes > 0 ? (
+                          <>
+                            <Timer size={12} />
+                            <span>{camp.schedule.autopilot.delayMinutes} min gap</span>
+                          </>
+                        ) : (
+                          <>
+                            <Zap size={12} />
+                            <span>Burst</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+
                     {camp.status === 'scheduled' && camp.schedule?.sendAt ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded font-medium">
-                        <Clock size={12} /> Scheduled for: {new Date(camp.schedule.sendAt).toLocaleString()}
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 rounded-md shadow-sm border border-amber-100">
+                        <Clock size={12} /> {new Date(camp.schedule.sendAt).toLocaleString()}
                       </span>
                     ) : (
-                      <span className="text-gray-400">
-                        Created on {new Date(camp.createdAt).toLocaleDateString()}
+                      <span className="text-gray-400 ml-1">
+                        Created {new Date(camp.createdAt).toLocaleDateString()}
                       </span>
                     )}
                   </div>

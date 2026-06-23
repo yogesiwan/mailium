@@ -27,11 +27,21 @@ const CampaignSettingsModal = ({ isOpen, onClose, campaign, onUpdate }) => {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (isOpen && campaign) {
+    if (isOpen) {
       setFormData({
-        schedule: campaign.schedule || { autopilot: {} },
-        companyName: campaign.companyName || '',
-        roleName: campaign.roleName || ''
+        schedule: campaign?.schedule || { 
+          delayMinutes: 0,
+          autopilot: {
+            enabled: false,
+            maxPerDay: 300,
+            delayMinutes: 3,
+            days: { monday: true, tuesday: true, wednesday: true, thursday: true, friday: true, saturday: false, sunday: false },
+            startTime: '09:00',
+            endTime: '17:00'
+          }
+        },
+        companyName: campaign?.companyName || '',
+        roleName: campaign?.roleName || ''
       });
       
       api.get('/campaigns/metadata/options')
@@ -41,7 +51,7 @@ const CampaignSettingsModal = ({ isOpen, onClose, campaign, onUpdate }) => {
         }))
         .catch(() => {});
     }
-  }, [isOpen, campaign]);
+  }, [isOpen]); // Only run when modal opens/closes, not when campaign updates in background
 
   const handleSave = async () => {
     setIsSaving(true);

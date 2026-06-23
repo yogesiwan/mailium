@@ -9,7 +9,7 @@ const agenda = require('../config/agenda');
 const { sendTestEmail } = require('../services/emailService');
 const { replacePlaceholders } = require('../services/templateEngine');
 const { syncReplies } = require('../services/replySyncService');
-const { resolveTimezone } = require('../utils/timezone');
+const { resolveTimezone, getAutopilotWindowState, getZonedDayBounds } = require('../utils/timezone');
 
 const ACTIVE_FOLLOW_UP_STATUSES = ['pending', 'scheduled', 'sending'];
 
@@ -120,10 +120,32 @@ router.get('/', async (req, res, next) => {
       ];
     }
 
-    const campaigns = await Campaign.find(query)
+    const rawCampaigns = await Campaign.find(query)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit);
+
+    const now = new Date();
+    const campaigns = await Promise.all(rawCampaigns.map(async (camp) => {
+      let autopilotState = 'active';
+      if (camp.status === 'sending' && camp.schedule?.autopilot?.enabled) {
+        const auto = camp.schedule.autopilot;
+        const windowState = getAutopilotWindowState(auto, now);
+        if (!windowState.allowed) {
+          autopilotState = 'paused_window';
+        } else if (auto.maxPerDay > 0) {
+          const { start, end } = getZonedDayBounds(now, windowState.timezone);
+          const sentToday = await Recipient.countDocuments({
+            campaignId: camp._id,
+            'mainEmail.sentAt': { $gte: start, $lt: end }
+          });
+          if (sentToday >= auto.maxPerDay) {
+            autopilotState = 'paused_limit';
+          }
+        }
+      }
+      return { ...camp.toObject(), autopilotState };
+    }));
 
     const total = await Campaign.countDocuments(query);
 
@@ -196,6 +218,18 @@ router.patch('/:id/schedule', async (req, res, next) => {
       { new: true, runValidators: true }
     );
     if (!campaign) return res.status(404).json({ success: false, error: 'Campaign not found' });
+
+    if (campaign.status === 'sending' || campaign.status === 'scheduled') {
+      const jobs = await agenda.jobs({ name: 'send-campaign-emails', 'data.campaignId': campaign._id });
+      if (jobs.length > 0) {
+        const job = jobs[0];
+        job.schedule(new Date());
+        await job.save();
+      } else {
+        await agenda.schedule(new Date(), 'send-campaign-emails', { campaignId: campaign._id });
+      }
+    }
+
     res.json({ success: true, campaign });
   } catch (err) {
     next(err);
@@ -211,39 +245,29 @@ router.get('/:id', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
 
-    let autopilotStatus = null;
-    if (campaign.schedule?.autopilot?.enabled && ['scheduled', 'sending'].includes(campaign.status)) {
-      const { getAutopilotWindowState, getZonedDayBounds } = require('../utils/timezone');
-      const Recipient = require('../models/Recipient');
-      
+    let autopilotState = 'active';
+    const now = new Date();
+    if (campaign.status === 'sending' && campaign.schedule?.autopilot?.enabled) {
       const auto = campaign.schedule.autopilot;
-      const now = new Date();
       const windowState = getAutopilotWindowState(auto, now);
-      
-      let sentToday = 0;
-      if (auto.maxPerDay > 0) {
+      if (!windowState.allowed) {
+        autopilotState = 'paused_window';
+      } else if (auto.maxPerDay > 0) {
         const { start, end } = getZonedDayBounds(now, windowState.timezone);
-        sentToday = await Recipient.countDocuments({
+        const sentToday = await Recipient.countDocuments({
           campaignId: campaign._id,
           'mainEmail.sentAt': { $gte: start, $lt: end }
         });
+        if (sentToday >= auto.maxPerDay) {
+          autopilotState = 'paused_limit';
+        }
       }
-      
-      autopilotStatus = {
-        isRunning: windowState.allowed && (auto.maxPerDay === 0 || sentToday < auto.maxPerDay),
-        sentToday,
-        maxPerDay: auto.maxPerDay || 0,
-        nextRun: windowState.nextRun || null,
-        reason: windowState.reason || null
-      };
     }
 
-    const campaignObj = campaign.toObject();
-    if (autopilotStatus) {
-      campaignObj.autopilotStatus = autopilotStatus;
-    }
-
-    res.json({ success: true, campaign: campaignObj });
+    res.json({ 
+      success: true, 
+      campaign: { ...campaign.toObject(), autopilotState }
+    });
   } catch (err) {
     next(err);
   }
