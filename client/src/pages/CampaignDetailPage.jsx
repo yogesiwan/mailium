@@ -577,10 +577,6 @@ const CampaignDetailPage = () => {
                   <Clock size={14} /> Scheduled for: {new Date(campaign.schedule.sendAt).toLocaleString()}
                 </div>
               )}
-
-              <div className="text-sm text-gray-500 flex items-center gap-2 sm:ml-auto">
-                <Clock size={14} /> Created: {campaign.startedAt || campaign.createdAt ? new Date(campaign.startedAt || campaign.createdAt).toLocaleString() : 'Not started'}
-              </div>
             </div>
             <div className="text-xs flex gap-2 mt-2 items-center text-gray-500">
               <button onClick={fetchCampaign} className="btn-outline flex items-center gap-1.5 px-2 py-1">
@@ -593,7 +589,10 @@ const CampaignDetailPage = () => {
             </div>
           </div>
 
-          <div className="relative" ref={actionsRef}>
+          <div className="relative flex flex-col items-end gap-3" ref={actionsRef}>
+            <div className="hidden sm:flex text-sm text-gray-400 font-medium items-center gap-1.5 whitespace-nowrap">
+              <Clock size={14} /> Created: {campaign.startedAt || campaign.createdAt ? new Date(campaign.startedAt || campaign.createdAt).toLocaleString() : 'Not started'}
+            </div>
             <button 
               className="btn-outline gap-2 bg-white shadow-sm"
               onClick={() => setActionsOpen(!actionsOpen)}

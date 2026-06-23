@@ -174,7 +174,7 @@ router.get('/campaigns/:id', async (req, res, next) => {
 
     let autopilotState = 'active';
     let autopilotNextRun = null;
-    if (campaign.status === 'sending' && campaign.schedule?.autopilot?.enabled) {
+    if (['sending', 'paused', 'scheduled'].includes(campaign.status) && campaign.schedule?.autopilot?.enabled) {
       const { getAutopilotWindowState, getZonedDayBounds } = require('../utils/timezone');
       const auto = campaign.schedule.autopilot;
       const now = new Date();
@@ -201,11 +201,19 @@ router.get('/campaigns/:id', async (req, res, next) => {
       }
 
       campaign.autopilotStatus = {
-        isRunning: autopilotState === 'active',
+        isRunning: campaign.status === 'sending' && autopilotState === 'active',
         sentToday,
         maxPerDay: auto.maxPerDay || 0,
         nextRun: autopilotNextRun,
-        reason: autopilotState === 'paused_window' ? 'Outside schedule' : autopilotState === 'paused_limit' ? 'Daily limit reached' : null
+        reason: campaign.status === 'paused' 
+          ? 'Campaign paused manually'
+          : campaign.status === 'scheduled'
+            ? 'Waiting for start date'
+            : autopilotState === 'paused_window' 
+              ? 'Outside schedule' 
+              : autopilotState === 'paused_limit' 
+                ? 'Daily limit reached' 
+                : null
       };
     }
     campaign.autopilotState = autopilotState;

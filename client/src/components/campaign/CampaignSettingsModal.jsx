@@ -136,17 +136,33 @@ const CampaignSettingsModal = ({ isOpen, onClose, campaign, onUpdate }) => {
           </div>
 
           {!formData.schedule?.autopilot?.enabled ? (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Delay between emails (minutes)</label>
-              <input 
-                type="number" 
-                value={formData.schedule?.delayMinutes || 0}
-                onChange={(e) => setFormData(p => ({
-                  ...p,
-                  schedule: { ...p.schedule, delayMinutes: parseInt(e.target.value) || 0 }
-                }))}
-                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-              />
+            <div className="space-y-4">
+              {campaign.status === 'scheduled' && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Start Date & Time</label>
+                  <input 
+                    type="datetime-local" 
+                    value={formData.schedule?.sendAt ? new Date(new Date(formData.schedule.sendAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
+                    onChange={(e) => setFormData(p => ({
+                      ...p,
+                      schedule: { ...p.schedule, sendAt: e.target.value ? new Date(e.target.value).toISOString() : null }
+                    }))}
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Delay between emails (minutes)</label>
+                <input 
+                  type="number" 
+                  value={formData.schedule?.delayMinutes || 0}
+                  onChange={(e) => setFormData(p => ({
+                    ...p,
+                    schedule: { ...p.schedule, delayMinutes: parseInt(e.target.value) || 0 }
+                  }))}
+                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
             </div>
           ) : (
             <div className="space-y-4">

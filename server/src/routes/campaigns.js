@@ -231,12 +231,21 @@ router.patch('/:id/schedule', async (req, res, next) => {
 
     if (campaign.status === 'sending' || campaign.status === 'scheduled') {
       const jobs = await agenda.jobs({ name: 'send-campaign-emails', 'data.campaignId': campaign._id });
+      
+      let nextRun = new Date();
+      if (campaign.status === 'scheduled' && campaign.schedule?.sendAt) {
+        nextRun = new Date(campaign.schedule.sendAt);
+        if (nextRun < new Date()) {
+          nextRun = new Date();
+        }
+      }
+
       if (jobs.length > 0) {
         const job = jobs[0];
-        job.schedule(new Date());
+        job.schedule(nextRun);
         await job.save();
       } else {
-        await agenda.schedule(new Date(), 'send-campaign-emails', { campaignId: campaign._id });
+        await agenda.schedule(nextRun, 'send-campaign-emails', { campaignId: campaign._id });
       }
     }
 
