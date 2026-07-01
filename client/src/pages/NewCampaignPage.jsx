@@ -338,6 +338,23 @@ const NewCampaignPage = () => {
     }
   };
 
+  const handleSendTestEmailPreview = async (email, recipientData) => {
+    // This is called from PreviewModal
+    const uploadedTestAttachments = await uploadFilesIfNeeded(activeAttachments);
+    
+    // PreviewModal handles its own try/catch and toast notifications,
+    // so we just return the promise here.
+    return api.post('/campaigns/test-draft', {
+      subject: previewCampaign.subject,
+      body: previewCampaign.body,
+      testEmail: email.trim(),
+      recipientData: recipientData || {},
+      fromName: campaign.from?.name || '',
+      fromEmail: campaign.from?.email || '',
+      attachments: uploadedTestAttachments
+    });
+  };
+
   const handleApplyTemplate = (templateId) => {
     if (!templateId) return;
     const template = templates.find(item => item._id === templateId);
@@ -729,6 +746,7 @@ const NewCampaignPage = () => {
         campaign={previewCampaign}
         recipientsData={recipientsData}
         attachments={activeAttachments}
+        onSendTest={handleSendTestEmailPreview}
       />
 
       <ExcludeRecipientsModal 

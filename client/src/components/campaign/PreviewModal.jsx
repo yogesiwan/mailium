@@ -4,7 +4,7 @@ import { Smartphone, Monitor, ChevronLeft, ChevronRight, Paperclip, Send } from 
 import toast from 'react-hot-toast';
 import api from '../../api';
 
-const PreviewModal = ({ isOpen, onClose, campaign, recipientsData, attachments = [] }) => {
+const PreviewModal = ({ isOpen, onClose, campaign, recipientsData, attachments = [], onSendTest }) => {
   const [viewMode, setViewMode] = useState('desktop');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [testEmail, setTestEmail] = useState('');
@@ -47,12 +47,18 @@ const PreviewModal = ({ isOpen, onClose, campaign, recipientsData, attachments =
     
     setIsSendingTest(true);
     try {
-      await api.post('/campaigns/test-draft', {
-        subject: campaign.subject,
-        body: campaign.body,
-        testEmail,
-        recipientData: currentRecipient
-      });
+      if (onSendTest) {
+        await onSendTest(testEmail, currentRecipient);
+      } else {
+        // Fallback if not provided (shouldn't happen with updated parent)
+        await api.post('/campaigns/test-draft', {
+          subject: campaign.subject,
+          body: campaign.body,
+          testEmail,
+          recipientData: currentRecipient,
+          attachments: attachments // Note: These might not be uploaded yet if using fallback
+        });
+      }
       toast.success('Test email sent!');
     } catch (err) {
       toast.error('Failed to send test email');
