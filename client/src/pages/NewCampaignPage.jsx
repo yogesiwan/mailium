@@ -535,7 +535,7 @@ const NewCampaignPage = () => {
 
         <div
           key={activeStepKey}
-          className={`card bg-white shadow-sm border border-gray-200 mb-6 flex flex-col min-h-[520px] active-editor-swap ${hasFollowUps ? 'max-h-[calc(100vh-250px)]' : 'max-h-[calc(100vh-190px)]'}`}
+          className="card bg-white shadow-sm border border-gray-200 mb-6 flex flex-col min-h-[520px] active-editor-swap"
         >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-b border-gray-100 bg-white">
             <div className="min-w-0 flex items-center gap-2">
@@ -650,7 +650,7 @@ const NewCampaignPage = () => {
             </div>
           )}
           
-          <div className="flex-1 min-h-0">
+          <div className="flex-none">
             <ComposeEditor 
               value={activeBody} 
               onChange={handleActiveBodyChange} 

@@ -377,7 +377,7 @@ const FollowUpEditor = ({
       )}
 
       {/* Editor Body */}
-      <div className="flex-1 relative">
+      <div className="flex-none relative">
         <ComposeEditor 
           value={followUp.body} 
           onChange={(val) => handleUpdate('body', val)} 

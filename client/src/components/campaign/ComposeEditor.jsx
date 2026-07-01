@@ -219,15 +219,17 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [], isReadOnly
         <EditorContent editor={editor} className="min-h-full" />
       </div>
 
-      {/* Custom Resize Handle */}
+      {/* Custom Resize Handle (Corner) */}
       {!isReadOnly && (
         <div 
-          className="h-4 flex items-center justify-center bg-gray-50 border-t border-gray-200 cursor-ns-resize hover:bg-gray-100 transition-colors rounded-b-xl"
+          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize opacity-50 hover:opacity-100 transition-opacity z-10"
           onMouseDown={startResizing}
           title="Drag to resize"
-        >
-          <GripHorizontal size={14} className="text-gray-400" />
-        </div>
+          style={{
+            background: 'linear-gradient(135deg, transparent 40%, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.1) 45%, transparent 45%, transparent 55%, rgba(0,0,0,0.1) 55%, rgba(0,0,0,0.1) 60%, transparent 60%, transparent 70%, rgba(0,0,0,0.1) 70%, rgba(0,0,0,0.1) 75%, transparent 75%)',
+            borderBottomRightRadius: '0.75rem'
+          }}
+        />
       )}
     </div>
   );
