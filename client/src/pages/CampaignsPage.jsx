@@ -2,7 +2,7 @@ import { useCallback, useState, useEffect, useMemo } from 'react';
 import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X, MoreVertical, Trash2, Check, Timer, Zap, Moon } from 'lucide-react';
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '../components/common/DropdownMenu';
 import AlertDialog from '../components/common/AlertDialog';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../api';
 
@@ -10,10 +10,18 @@ const CampaignsPage = () => {
   const [campaigns, setCampaigns] = useState([]);
   const [filters, setFilters] = useState({ companies: [], roles: [] });
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('All');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [companyFilter, setCompanyFilter] = useState('All');
-  const [roleFilter, setRoleFilter] = useState('All');
+  
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'All';
+  const searchTerm = searchParams.get('search') || '';
+  const companyFilter = searchParams.get('company') || 'All';
+  const roleFilter = searchParams.get('role') || 'All';
+
+  const setActiveTab = (val) => setSearchParams(prev => { prev.set('tab', val); return prev; });
+  const setSearchTerm = (val) => setSearchParams(prev => { if(val) prev.set('search', val); else prev.delete('search'); return prev; });
+  const setCompanyFilter = (val) => setSearchParams(prev => { prev.set('company', val); return prev; });
+  const setRoleFilter = (val) => setSearchParams(prev => { prev.set('role', val); return prev; });
+
   const [selectedCampaigns, setSelectedCampaigns] = useState(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null, type: 'single' });
@@ -183,10 +191,7 @@ const CampaignsPage = () => {
   const tabs = ['All', 'Draft', 'Scheduled', 'Running', 'Sleeping', 'Paused', 'Completed'];
 
   const resetFilters = () => {
-    setSearchTerm('');
-    setCompanyFilter('All');
-    setRoleFilter('All');
-    setActiveTab('All');
+    setSearchParams(new URLSearchParams());
   };
 
   const filteredCampaigns = useMemo(() => {
@@ -251,6 +256,7 @@ const CampaignsPage = () => {
                 {tab === 'All' ? campaigns.length : campaigns.filter(c => {
                   const derived = getDerivedStatus(c).toLowerCase();
                   const tabStr = tab.toLowerCase();
+                  if (tabStr === 'sleeping' && derived.startsWith('sleeping')) return true;
                   if (tabStr === 'paused' && derived.startsWith('paused')) return true;
                   return derived === tabStr;
                 }).length}

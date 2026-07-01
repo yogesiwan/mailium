@@ -175,7 +175,7 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [], isReadOnly
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-white rounded-b-xl overflow-hidden">
+    <div className="flex flex-col h-full min-h-[300px] max-h-[800px] resize-y overflow-auto bg-white rounded-b-xl border border-gray-100">
       {!isReadOnly && <MenuBar editor={editor} />}
       {availablePlaceholders.length > 0 && (
         <div className="px-4 py-2 border-b border-gray-100 flex gap-2 items-center bg-blue-50/30 overflow-x-auto">

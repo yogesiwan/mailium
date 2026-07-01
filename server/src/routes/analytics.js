@@ -270,4 +270,47 @@ router.get('/campaigns/:id', async (req, res, next) => {
   }
 });
 
+// @route   GET /api/analytics/recent-activity
+// @desc    Get recent tracking events across all campaigns
+router.get('/recent-activity', async (req, res, next) => {
+  try {
+    const timeframe = req.query.timeframe || 'today';
+    const limit = parseInt(req.query.limit) || 50;
+
+    let dateQuery = {};
+    const now = new Date();
+    if (timeframe === '15m') {
+      dateQuery = { $gte: new Date(now.getTime() - 15 * 60 * 1000) };
+    } else if (timeframe === '1h') {
+      dateQuery = { $gte: new Date(now.getTime() - 60 * 60 * 1000) };
+    } else if (timeframe === 'today') {
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      dateQuery = { $gte: today };
+    }
+
+    // First find the user's campaigns
+    const userCampaigns = await Campaign.find({ user: req.user._id }).select('_id').lean();
+    const campaignIds = userCampaigns.map(c => c._id);
+
+    const query = { campaignId: { $in: campaignIds } };
+    if (timeframe !== 'all') {
+      query.createdAt = dateQuery;
+    }
+
+    const events = await TrackingEvent.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('recipientId', 'email data')
+      .populate('campaignId', 'name')
+      .lean();
+
+    res.json({
+      success: true,
+      events
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

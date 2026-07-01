@@ -1,6 +1,6 @@
-require('dotenv').config();
+require('dotenv').config({ path: 'server/.env' });
 const mongoose = require('mongoose');
-const Recipient = require('./src/models/Recipient');
+const Recipient = require('./server/src/models/Recipient');
 
 mongoose.connect(process.env.MONGODB_URI).then(async () => {
   const recipients = await Recipient.find({

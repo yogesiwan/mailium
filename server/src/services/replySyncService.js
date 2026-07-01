@@ -47,14 +47,16 @@ const messageDate = (message) => {
   return dateHeader ? new Date(dateHeader) : null;
 };
 
-const hasRecipientReply = (messages = [], recipientEmail, sentAt) => {
-  const normalizedRecipient = normalizeEmail(recipientEmail);
+const hasRecipientReply = (messages = [], sentAt) => {
   const sentTime = sentAt ? new Date(sentAt).getTime() : 0;
 
   return messages.some((message) => {
-    const fromEmail = normalizeEmail(getHeader(message, 'From'));
-    if (fromEmail !== normalizedRecipient) return false;
+    // If it's sent by us or is a draft, it's not a reply
+    const isSentByMe = message.labelIds?.includes('SENT');
+    const isDraft = message.labelIds?.includes('DRAFT');
+    if (isSentByMe || isDraft) return false;
 
+    // It's an incoming message on the thread, check the date
     const replyDate = messageDate(message);
     if (!replyDate || Number.isNaN(replyDate.getTime())) return true;
 
@@ -101,83 +103,98 @@ const syncReplies = async ({ campaignId, limit = 100 } = {}) => {
     campaignId: { $in: campaignIds },
     status: { $in: REPLY_SYNC_RECIPIENT_STATUSES },
     'mainEmail.messageId': { $exists: true, $ne: null }
-  }).limit(limit);
+  }).populate('campaignId', 'user').limit(limit);
 
   if (recipients.length === 0) {
     return { checked: 0, updated: 0, skipped: 0 };
   }
 
-  const auth = await getOAuth2Client();
-  const gmail = google.gmail({ version: 'v1', auth });
+  const recipientsByUser = {};
+  for (const recipient of recipients) {
+    if (!recipient.campaignId || !recipient.campaignId.user) continue;
+    const userId = recipient.campaignId.user.toString();
+    if (!recipientsByUser[userId]) recipientsByUser[userId] = [];
+    recipientsByUser[userId].push(recipient);
+  }
 
   let updated = 0;
   let skipped = 0;
 
-  for (const recipient of recipients) {
+  for (const userId of Object.keys(recipientsByUser)) {
     try {
-      const emailChecks = [];
+      const auth = await getOAuth2Client(userId);
+      const gmail = google.gmail({ version: 'v1', auth });
 
-      if (recipient.mainEmail?.messageId && !recipient.mainEmail.replied) {
-        emailChecks.push({
-          type: 'main',
-          messageId: recipient.mainEmail.messageId,
-          sentAt: recipient.mainEmail.sentAt,
-          gmailThreadId: recipient.mainEmail.gmailThreadId,
-          trackingId: recipient.mainEmail.trackingId
-        });
-      }
+      for (const recipient of recipientsByUser[userId]) {
+        try {
+          const emailChecks = [];
 
-      recipient.followUps.forEach((followUp, index) => {
-        if (followUp.messageId && !followUp.replied) {
-          emailChecks.push({
-            type: 'followUp',
-            index,
-            order: followUp.order,
-            messageId: followUp.messageId,
-            sentAt: followUp.sentAt,
-            gmailThreadId: followUp.gmailThreadId,
-            trackingId: followUp.trackingId
+          if (recipient.mainEmail?.messageId && !recipient.mainEmail.replied) {
+            emailChecks.push({
+              type: 'main',
+              messageId: recipient.mainEmail.messageId,
+              sentAt: recipient.mainEmail.sentAt,
+              gmailThreadId: recipient.mainEmail.gmailThreadId,
+              trackingId: recipient.mainEmail.trackingId
+            });
+          }
+
+          recipient.followUps.forEach((followUp, index) => {
+            if (followUp.messageId && !followUp.replied) {
+              emailChecks.push({
+                type: 'followUp',
+                index,
+                order: followUp.order,
+                messageId: followUp.messageId,
+                sentAt: followUp.sentAt,
+                gmailThreadId: followUp.gmailThreadId,
+                trackingId: followUp.trackingId
+              });
+            }
           });
-        }
-      });
 
-      for (const emailCheck of emailChecks) {
-        let trueThreadId = emailCheck.gmailThreadId;
+          for (const emailCheck of emailChecks) {
+            let trueThreadId = emailCheck.gmailThreadId;
 
-        if (!trueThreadId) {
-          trueThreadId = await findGmailThreadId(gmail, emailCheck.messageId);
-          if (!trueThreadId) {
-            skipped += 1;
-            continue;
+            if (!trueThreadId) {
+              trueThreadId = await findGmailThreadId(gmail, emailCheck.messageId);
+              if (!trueThreadId) {
+                skipped += 1;
+                continue;
+              }
+
+              if (emailCheck.type === 'main') {
+                recipient.mainEmail.gmailThreadId = trueThreadId;
+              } else {
+                recipient.followUps[emailCheck.index].gmailThreadId = trueThreadId;
+                recipient.markModified('followUps');
+              }
+              await recipient.save();
+            }
+
+            const response = await gmail.users.threads.get({
+              userId: 'me',
+              id: trueThreadId,
+              format: 'metadata',
+              metadataHeaders: ['From', 'Date']
+            });
+
+            if (hasRecipientReply(response.data.messages, emailCheck.sentAt)) {
+              await markRecipientReplied({ recipient, emailCheck, repliedAt: new Date() });
+              updated += 1;
+              break; // Stop checking further follow-ups if already replied
+            }
           }
-
-          if (emailCheck.type === 'main') {
-            recipient.mainEmail.gmailThreadId = trueThreadId;
-          } else {
-            recipient.followUps[emailCheck.index].gmailThreadId = trueThreadId;
-            recipient.markModified('followUps');
+        } catch (err) {
+          skipped += 1;
+          if (err.code !== 404) {
+            console.error(`Gmail API error for recipient ${recipient.email}:`, err.message);
           }
-          await recipient.save();
-        }
-
-        const response = await gmail.users.threads.get({
-          userId: 'me',
-          id: trueThreadId,
-          format: 'metadata',
-          metadataHeaders: ['From', 'Date']
-        });
-
-        if (hasRecipientReply(response.data.messages, recipient.email, emailCheck.sentAt)) {
-          await markRecipientReplied({ recipient, emailCheck, repliedAt: new Date() });
-          updated += 1;
-          break;
         }
       }
     } catch (err) {
-      skipped += 1;
-      if (err.code !== 404) {
-        console.error(`Gmail API error for recipient ${recipient.email}:`, err.message);
-      }
+      console.error(`Failed to get OAuth client for user ${userId}:`, err.message);
+      skipped += recipientsByUser[userId].length;
     }
   }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
 import { BarChart2, MousePointerClick, MailOpen, Reply } from 'lucide-react';
+import RecentActivityFeed from '../components/analytics/RecentActivityFeed';
 
 const AnalyticsPage = () => {
   const [data, setData] = useState(null);
@@ -144,6 +145,9 @@ const AnalyticsPage = () => {
           )}
         </div>
       </div>
+      
+      {/* New Live Activity Feed Section */}
+      <RecentActivityFeed />
     </div>
   );
 };
