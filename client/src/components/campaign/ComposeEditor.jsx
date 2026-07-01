@@ -184,6 +184,20 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [], isReadOnly
     const onMouseMove = (mouseMoveEvent) => {
       const newHeight = startHeight + mouseMoveEvent.clientY - startY;
       setEditorHeight(Math.max(200, Math.min(newHeight, 1200)));
+
+      // Auto-scroll logic when dragging near the bottom bounds
+      if (resizeRef.current) {
+        const handleRect = resizeRef.current.getBoundingClientRect();
+        const scrollContainer = resizeRef.current.closest('.overflow-y-auto, .overflow-auto, .follow-up-list-scroll');
+        
+        if (scrollContainer) {
+          const containerRect = scrollContainer.getBoundingClientRect();
+          // If the handle is pushed below the visible area of its container
+          if (handleRect.bottom > containerRect.bottom - 20) {
+            scrollContainer.scrollTop += handleRect.bottom - containerRect.bottom + 20;
+          }
+        }
+      }
     };
 
     const onMouseUp = () => {
@@ -222,6 +236,7 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [], isReadOnly
       {/* Custom Resize Handle (Corner) */}
       {!isReadOnly && (
         <div 
+          ref={resizeRef}
           className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize text-gray-400 hover:text-blue-600 transition-colors z-10 flex items-end justify-end p-1"
           onMouseDown={startResizing}
           title="Drag to resize"
