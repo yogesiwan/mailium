@@ -285,8 +285,11 @@ const CampaignsPage = () => {
               className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               value={companyFilter}
               onChange={(e) => {
-                setCompanyFilter(e.target.value);
-                setRoleFilter('All');
+                setSearchParams(prev => {
+                  prev.set('company', e.target.value);
+                  prev.set('role', 'All');
+                  return prev;
+                });
               }}
             >
               <option value="All">All companies</option>
@@ -426,7 +429,7 @@ const CampaignsPage = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
                     <h3 className="text-lg font-bold text-gray-800 truncate" style={{ textShadow: '1px 1px 0px rgba(255,255,255,0.8)' }}>
-                      <Link to={`/campaigns/${camp._id}`} className="hover:text-blue-600 hover:underline">
+                      <Link to={`/campaigns/${camp._id}`} state={{ fromParams: searchParams.toString() }} className="hover:text-blue-600 hover:underline">
                         {camp.name}
                       </Link>
                     </h3>

@@ -1,0 +1,6 @@
+#!/usr/bin/expect -f
+set timeout -1
+spawn ssh -o StrictHostKeyChecking=no system-cache@143.244.128.71 "cd apps/mailium && docker-compose exec -T cache-runtime node src/scripts/fix_replies.js"
+expect "password:"
+send "yogesh\r"
+expect eof
