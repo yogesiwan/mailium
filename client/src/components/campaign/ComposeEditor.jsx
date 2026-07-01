@@ -222,14 +222,16 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [], isReadOnly
       {/* Custom Resize Handle (Corner) */}
       {!isReadOnly && (
         <div 
-          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize opacity-50 hover:opacity-100 transition-opacity z-10"
+          className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize text-gray-400 hover:text-blue-600 transition-colors z-10 flex items-end justify-end p-1"
           onMouseDown={startResizing}
           title="Drag to resize"
-          style={{
-            background: 'linear-gradient(135deg, transparent 40%, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.1) 45%, transparent 45%, transparent 55%, rgba(0,0,0,0.1) 55%, rgba(0,0,0,0.1) 60%, transparent 60%, transparent 70%, rgba(0,0,0,0.1) 70%, rgba(0,0,0,0.1) 75%, transparent 75%)',
-            borderBottomRightRadius: '0.75rem'
-          }}
-        />
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 0L0 12H12V0Z" fill="transparent" />
+            <path d="M8 12L12 8V10L10 12H8Z" fill="currentColor" />
+            <path d="M4 12L12 4V6L6 12H4Z" fill="currentColor" />
+          </svg>
+        </div>
       )}
     </div>
   );
