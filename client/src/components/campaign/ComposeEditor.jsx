@@ -6,7 +6,7 @@ import { TextAlign } from '@tiptap/extension-text-align';
 import { Link } from '@tiptap/extension-link';
 import { Color } from '@tiptap/extension-color';
 import { TextStyle } from '@tiptap/extension-text-style';
-import { Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, Link as LinkIcon, RemoveFormatting, Code } from 'lucide-react';
+import { Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, Link as LinkIcon, RemoveFormatting, Code, GripHorizontal } from 'lucide-react';
 
 const MenuBar = ({ editor }) => {
   if (!editor) return null;
@@ -119,6 +119,8 @@ const CustomEnter = Extension.create({
 
 const ComposeEditor = ({ value, onChange, availablePlaceholders = [], isReadOnly = false }) => {
   const valueRef = useRef(value || '');
+  const [editorHeight, setEditorHeight] = useState(400);
+  const resizeRef = useRef(null);
 
   useEffect(() => {
     valueRef.current = value || '';
@@ -174,8 +176,30 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [], isReadOnly
     }
   };
 
+  const startResizing = (mouseDownEvent) => {
+    mouseDownEvent.preventDefault();
+    const startY = mouseDownEvent.clientY;
+    const startHeight = editorHeight;
+
+    const onMouseMove = (mouseMoveEvent) => {
+      const newHeight = startHeight + mouseMoveEvent.clientY - startY;
+      setEditorHeight(Math.max(200, Math.min(newHeight, 1200)));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
   return (
-    <div className="flex flex-col h-full min-h-[300px] max-h-[800px] resize-y overflow-auto bg-white rounded-b-xl border border-gray-100">
+    <div 
+      className="flex flex-col relative bg-white rounded-b-xl border border-gray-200 shadow-sm"
+      style={{ height: editorHeight ? `${editorHeight}px` : '100%' }}
+    >
       {!isReadOnly && <MenuBar editor={editor} />}
       {availablePlaceholders.length > 0 && (
         <div className="px-4 py-2 border-b border-gray-100 flex gap-2 items-center bg-blue-50/30 overflow-x-auto">
@@ -191,9 +215,20 @@ const ComposeEditor = ({ value, onChange, availablePlaceholders = [], isReadOnly
           ))}
         </div>
       )}
-      <div className="flex-1 min-h-0 overflow-y-auto cursor-text">
+      <div className="flex-1 min-h-0 overflow-y-auto cursor-text px-4 py-2">
         <EditorContent editor={editor} className="min-h-full" />
       </div>
+
+      {/* Custom Resize Handle */}
+      {!isReadOnly && (
+        <div 
+          className="h-4 flex items-center justify-center bg-gray-50 border-t border-gray-200 cursor-ns-resize hover:bg-gray-100 transition-colors rounded-b-xl"
+          onMouseDown={startResizing}
+          title="Drag to resize"
+        >
+          <GripHorizontal size={14} className="text-gray-400" />
+        </div>
+      )}
     </div>
   );
 };
