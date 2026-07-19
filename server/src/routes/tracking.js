@@ -28,9 +28,8 @@ const handleTrackingEvent = async (trackingId, type, req, additionalData = {}) =
     const ip = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : rawIp;
     const userAgent = req.headers['user-agent'] || '';
 
-    // Detect Bot or Ignored IP. Explicitly allow GoogleImageProxy as it's used by Gmail for legitimate opens.
-    const isGoogleProxy = userAgent.includes('GoogleImageProxy');
-    const botDetected = !isGoogleProxy && isbot(userAgent);
+    // Detect Bot or Ignored IP
+    const botDetected = isbot(userAgent) || userAgent.includes('GoogleImageProxy');
     const ignoredIpDoc = await IgnoredIP.findOne({ ip });
     const isIgnored = !!ignoredIpDoc;
 
