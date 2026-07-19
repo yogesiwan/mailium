@@ -136,7 +136,11 @@ router.get('/campaigns/:id/tracking', async (req, res, next) => {
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
-    const query = { campaignId };
+    const query = { 
+      campaignId,
+      'metadata.isBot': { $ne: true },
+      'metadata.isIgnored': { $ne: true }
+    };
     if (type && type !== 'All') query.type = type;
 
     const [events, total] = await Promise.all([
@@ -231,14 +235,23 @@ router.get('/campaigns/:id', async (req, res, next) => {
     ]);
 
     // Recent events timeline
-    const timeline = await TrackingEvent.find({ campaignId: campaign._id })
+    const timeline = await TrackingEvent.find({ 
+      campaignId: campaign._id,
+      'metadata.isBot': { $ne: true },
+      'metadata.isIgnored': { $ne: true }
+    })
       .sort({ createdAt: -1 })
       .limit(20)
       .populate('recipientId', 'email data')
       .lean();
 
     const eventTotals = await TrackingEvent.aggregate([
-      { $match: { campaignId: campaign._id } },
+      { $match: { 
+          campaignId: campaign._id,
+          'metadata.isBot': { $ne: true },
+          'metadata.isIgnored': { $ne: true }
+        } 
+      },
       { $group: { _id: '$type', count: { $sum: 1 } } }
     ]);
 
@@ -292,7 +305,11 @@ router.get('/recent-activity', async (req, res, next) => {
     const userCampaigns = await Campaign.find({ user: req.user._id }).select('_id').lean();
     const campaignIds = userCampaigns.map(c => c._id);
 
-    const query = { campaignId: { $in: campaignIds } };
+    const query = { 
+      campaignId: { $in: campaignIds },
+      'metadata.isBot': { $ne: true },
+      'metadata.isIgnored': { $ne: true }
+    };
     if (timeframe !== 'all') {
       query.createdAt = dateQuery;
     }
