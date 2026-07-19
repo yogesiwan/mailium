@@ -12,8 +12,8 @@ const campaignSchema = new mongoose.Schema({
     default: "draft"
   },
   from: {
-    name: { type: String, default: "Yogesh Siwan" },
-    email: { type: String, default: "yogesiwan@gmail.com" }
+    name: { type: String, default: "" },
+    email: { type: String, default: "" }
   },
   subject: { type: String, required: true },
   body: { type: String, required: true },

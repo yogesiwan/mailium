@@ -19,10 +19,10 @@ const createTransporter = async (userId) => {
     }
 
     const settings = await Settings.findOne({ user: userId });
-    const user = settings?.google?.userEmail || process.env.GOOGLE_USER_EMAIL;
+    const user = settings?.google?.userEmail || '';
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = settings?.google?.refreshToken || process.env.GOOGLE_REFRESH_TOKEN;
+    const refreshToken = settings?.google?.refreshToken || '';
 
     const transporter = nodemailer.createTransport({
       service: 'gmail',

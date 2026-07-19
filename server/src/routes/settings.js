@@ -35,12 +35,12 @@ const toPublicSettings = (settings) => {
 
   publicSettings.google = {
     ...googleSettings,
-    userEmail: googleSettings.userEmail || process.env.GOOGLE_USER_EMAIL || '',
-    userName: googleSettings.userName || (hasEnvCredentials ? 'Google account from server env' : ''),
+    userEmail: googleSettings.userEmail || '',
+    userName: googleSettings.userName || '',
     scopes: googleSettings.scopes || [],
-    isConfigured: hasDbGoogleCredentials || hasEnvCredentials,
+    isConfigured: hasDbGoogleCredentials,
     connectedAt: googleSettings.tokenExpiry || null,
-    source: hasDbGoogleCredentials ? 'database' : hasEnvCredentials ? 'environment' : 'none',
+    source: hasDbGoogleCredentials ? 'database' : 'none',
     oauthAvailable: isSecureOAuthCallback()
   };
   delete publicSettings.google.refreshToken;

@@ -25,8 +25,8 @@ const normalizeCampaignPayload = async (payload = {}, userId) => {
     companyName: payload.companyName?.trim() || '',
     roleName: payload.roleName?.trim() || '',
     from: {
-      name: payload.from?.name || settings?.defaults?.fromName || 'Yogesh Siwan',
-      email: payload.from?.email || settings?.defaults?.fromEmail || process.env.GOOGLE_USER_EMAIL
+      name: payload.from?.name || settings?.defaults?.fromName || settings?.google?.userName || '',
+      email: payload.from?.email || settings?.defaults?.fromEmail || settings?.google?.userEmail || ''
     },
     schedule: {
       ...schedule,

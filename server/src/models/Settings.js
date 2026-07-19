@@ -8,13 +8,13 @@ const settingsSchema = new mongoose.Schema({
     refreshToken: String,
     accessToken: String,
     tokenExpiry: Date,
-    userEmail: { type: String, default: "yogesiwan@gmail.com" },
-    userName: { type: String, default: "Yogesh Siwan" },
+    userEmail: { type: String, default: "" },
+    userName: { type: String, default: "" },
     scopes: [String]
   },
   defaults: {
-    fromName: { type: String, default: "Yogesh Siwan" },
-    fromEmail: { type: String, default: "yogesiwan@gmail.com" },
+    fromName: { type: String, default: "" },
+    fromEmail: { type: String, default: "" },
     timezone: { type: String, default: "Asia/Kolkata" },
     maxEmailsPerDay: { type: Number, default: 300 },
     delayBetweenEmails: { type: Number, default: 3 }

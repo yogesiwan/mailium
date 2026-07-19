@@ -187,6 +187,13 @@ const syncReplies = async ({ campaignId, limit = 100 } = {}) => {
           }
         } catch (err) {
           skipped += 1;
+          const isAuthError = err.message === 'invalid_grant' || err.code === 401 || (err.message && err.message.includes('invalid_grant'));
+          
+          if (isAuthError) {
+            console.error(`Google Auth revoked/expired for user ${userId} (invalid_grant). Stopping reply sync for this user.`);
+            break; // Stop checking further recipients for this user
+          }
+
           if (err.code !== 404) {
             console.error(`Gmail API error for recipient ${recipient.email}:`, err.message);
           }

@@ -106,6 +106,28 @@ const NewCampaignPage = () => {
     }
   }, [searchParams, setCampaign]);
 
+  // Fetch default sender details for new campaigns
+  useEffect(() => {
+    if (!searchParams.get('id') && !campaign.from?.email) {
+      const fetchUserSettings = async () => {
+        try {
+          const res = await api.get('/settings');
+          const userSettings = res.data.settings;
+          const fromName = userSettings.defaults?.fromName || userSettings.google?.userName || '';
+          const fromEmail = userSettings.defaults?.fromEmail || userSettings.google?.userEmail || '';
+          
+          setCampaign(prev => ({
+            ...prev,
+            from: { name: fromName, email: fromEmail }
+          }));
+        } catch (err) {
+          console.error('Failed to load user settings for default sender', err);
+        }
+      };
+      fetchUserSettings();
+    }
+  }, [searchParams, campaign.from?.email, setCampaign]);
+
   const followUps = campaign.followUps || EMPTY_FOLLOW_UPS;
   const activeFollowUp = activeStep.type === 'followUp' ? followUps[activeStep.index] : null;
   const isEditingFollowUp = Boolean(activeFollowUp);
@@ -331,8 +353,8 @@ const NewCampaignPage = () => {
       });
       toast.success('Test email sent successfully');
       setIsTestModalOpen(false);
-    } catch {
-      toast.error('Failed to send test email');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to send test email');
     } finally {
       setIsSendingTest(false);
     }
@@ -424,8 +446,8 @@ const NewCampaignPage = () => {
       setTemplateDescription('');
       setIsSaveTemplateOpen(false);
       toast.success('Template saved');
-    } catch {
-      toast.error('Failed to save template');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to save template');
     } finally {
       setIsSavingTemplate(false);
     }
@@ -606,7 +628,11 @@ const NewCampaignPage = () => {
 
           <div className="flex border-b border-gray-100">
             <div className="w-24 px-4 py-3 text-sm font-medium text-gray-500 border-r border-gray-100 bg-gray-50 flex items-center">From:</div>
-            <div className="flex-1 px-4 py-3 text-sm text-gray-900 bg-gray-50">Yogesh Siwan &lt;yogesiwan@gmail.com&gt;</div>
+            <div className={`flex-1 px-4 py-3 text-sm ${campaign.from?.email ? 'text-gray-900 bg-gray-50' : 'text-red-500 bg-red-50 font-medium'}`}>
+              {campaign.from?.email 
+                ? `${campaign.from.name} <${campaign.from.email}>` 
+                : 'Warning: No connected Google account found. Please connect via Settings first.'}
+            </div>
           </div>
           
           <div className="flex border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => setIsRecipientSelectorOpen(true)}>

@@ -191,6 +191,14 @@ module.exports = function(agenda) {
               await Campaign.findByIdAndUpdate(campaign._id, { $inc: { 'stats.sent': 1 } });
 
             } catch (err) {
+              const isAuthError = err.message === 'invalid_grant' || (err.response && err.response.data && err.response.data.error === 'invalid_grant') || (err.message && err.message.includes('invalid_grant'));
+              
+              if (isAuthError) {
+                console.error(`Google Auth revoked/expired for campaign ${campaign._id}. Pausing campaign.`);
+                await Campaign.findByIdAndUpdate(campaign._id, { status: 'paused' });
+                return done(new Error(`Campaign paused due to invalid Google Auth token (invalid_grant).`));
+              }
+
               console.error(`Failed to send follow up to ${recipient.email}:`, err);
             }
           }

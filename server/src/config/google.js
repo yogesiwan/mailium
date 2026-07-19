@@ -27,10 +27,7 @@ const getOAuth2Client = async (userId) => {
         expiry_date: settings.google.tokenExpiry ? new Date(settings.google.tokenExpiry).getTime() : null,
       });
     } else {
-      // Fallback to ENV vars
-      oauth2Client.setCredentials({
-        refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-      });
+      throw new Error('User has not connected their Google account.');
     }
 
     // Add an event listener to update the DB when the access token is refreshed
