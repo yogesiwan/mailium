@@ -8,6 +8,8 @@ router.use((req, res, next) => {
 const { google } = require('googleapis');
 const Settings = require('../models/Settings');
 const IgnoredIP = require('../models/IgnoredIP');
+const User = require('../models/User');
+const configService = require('../services/configService');
 const { resolveTimezone } = require('../utils/timezone');
 
 const getServerTimezone = () => resolveTimezone(process.env.TZ);
@@ -234,6 +236,52 @@ router.delete('/ignored-ips/:id', async (req, res, next) => {
   try {
     await IgnoredIP.findByIdAndDelete(req.params.id);
     res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin Middleware
+const adminProtect = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (user && user.email.toLowerCase() === 'yogesiwan@gmail.com') {
+      next();
+    } else {
+      res.status(403).json({ success: false, error: 'Not authorized as admin' });
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @route   GET /api/settings/admin/config
+// @desc    Get admin configurations
+router.get('/admin/config', adminProtect, async (req, res, next) => {
+  try {
+    const maxUsersLimit = await configService.getConfig('MAX_USERS_LIMIT', 5);
+    res.json({ success: true, config: { maxUsersLimit } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   POST /api/settings/admin/config
+// @desc    Update admin configurations
+router.post('/admin/config', adminProtect, async (req, res, next) => {
+  try {
+    const { maxUsersLimit } = req.body;
+    
+    if (maxUsersLimit !== undefined) {
+      const limit = parseInt(maxUsersLimit, 10);
+      if (isNaN(limit) || limit < 1) {
+        return res.status(400).json({ success: false, error: 'Invalid MAX_USERS_LIMIT' });
+      }
+      await configService.setConfig('MAX_USERS_LIMIT', limit);
+    }
+    
+    const newMaxUsersLimit = await configService.getConfig('MAX_USERS_LIMIT', 5);
+    res.json({ success: true, config: { maxUsersLimit: newMaxUsersLimit } });
   } catch (err) {
     next(err);
   }

@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { protect } = require('../middleware/auth');
 const { sendTestEmail } = require('../services/emailService');
+const configService = require('../services/configService');
 
 // Helper to generate JWT
 const generateToken = (id) => {
@@ -28,7 +29,7 @@ router.post('/signup', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Email already exists' });
     }
 
-    const maxUsersLimit = parseInt(process.env.MAX_USERS_LIMIT, 10) || 5;
+    const maxUsersLimit = await configService.getConfig('MAX_USERS_LIMIT', 5);
     const userCount = await User.countDocuments();
     
     if (userCount >= maxUsersLimit) {
@@ -155,7 +156,7 @@ router.get('/admin/approve/:id', async (req, res, next) => {
     }
 
     const activeUsersCount = await User.countDocuments({ status: 'active' });
-    const maxUsers = parseInt(process.env.MAX_USERS_LIMIT) || 5;
+    const maxUsers = await configService.getConfig('MAX_USERS_LIMIT', 5);
     
     if (activeUsersCount >= maxUsers) {
       return res.status(403).send(`Cannot approve. Maximum active user limit (${maxUsers}) reached.`);

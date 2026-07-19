@@ -5,11 +5,15 @@ import toast from 'react-hot-toast';
 import api from '../api';
 import { COMMON_TIMEZONES, formatDateTime, getBrowserTimezone } from '../utils/timezones';
 import Modal from '../components/common/Modal';
+import { useAuth } from '../context/AuthContext';
 
 const SettingsPage = () => {
   const [searchParams] = useSearchParams();
   const [settings, setSettings] = useState(null);
   const [ignoredIps, setIgnoredIps] = useState([]);
+  const { user } = useAuth();
+  const isAdmin = user && user.email.toLowerCase() === 'yogesiwan@gmail.com';
+  
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -24,15 +28,36 @@ const SettingsPage = () => {
     delayBetweenEmails: 3
   });
 
+  const [adminConfig, setAdminConfig] = useState({
+    maxUsersLimit: 5
+  });
+  const [savingAdmin, setSavingAdmin] = useState(false);
+
   const fetchSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const [res, ipsRes] = await Promise.all([
+      const promises = [
         api.get('/settings'),
         api.get('/settings/ignored-ips')
-      ]);
+      ];
+      
+      if (isAdmin) {
+        promises.push(api.get('/settings/admin/config'));
+      }
+      
+      const results = await Promise.all(promises);
+      const res = results[0];
+      const ipsRes = results[1];
+      const adminRes = isAdmin ? results[2] : null;
+
       setSettings(res.data.settings);
       setIgnoredIps(ipsRes.data.ips || []);
+      
+      if (adminRes && adminRes.data.config) {
+        setAdminConfig({
+          maxUsersLimit: adminRes.data.config.maxUsersLimit || 5
+        });
+      }
       setDefaults({
         fromName: res.data.settings.defaults?.fromName || '',
         fromEmail: res.data.settings.defaults?.fromEmail || '',
@@ -117,6 +142,23 @@ const SettingsPage = () => {
       }
     } catch {
       toast.error('Failed to remove IP');
+    }
+  };
+
+  const handleSaveAdminSettings = async () => {
+    setSavingAdmin(true);
+    try {
+      const res = await api.post('/settings/admin/config', {
+        maxUsersLimit: adminConfig.maxUsersLimit
+      });
+      if (res.data.success) {
+        toast.success('Admin settings saved successfully');
+        setAdminConfig(res.data.config);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to save admin settings');
+    } finally {
+      setSavingAdmin(false);
     }
   };
 
@@ -363,6 +405,51 @@ const SettingsPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Admin Settings Section */}
+      {isAdmin && (
+        <div className="bg-white rounded-xl border border-red-200 shadow-sm overflow-hidden mb-8">
+          <div className="border-b border-red-100 bg-red-50/50 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 bg-red-100 rounded-lg flex items-center justify-center text-red-600">
+                <ShieldCheck size={20} />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Admin Configuration</h2>
+                <p className="text-sm text-gray-500">Global settings for the Mailium application</p>
+              </div>
+            </div>
+            <button 
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
+              onClick={handleSaveAdminSettings}
+              disabled={savingAdmin}
+            >
+              {savingAdmin ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+              {savingAdmin ? 'Saving...' : 'Save Config'}
+            </button>
+          </div>
+
+          <div className="p-6">
+            <div className="max-w-xl space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Maximum Permissible Users
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    className="flex-1 max-w-[200px] px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-red-500 focus:border-red-500"
+                    value={adminConfig.maxUsersLimit}
+                    onChange={(e) => setAdminConfig({...adminConfig, maxUsersLimit: parseInt(e.target.value) || 1})}
+                  />
+                  <span className="text-sm text-gray-500">Total active users allowed in the app</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Label Dialog Modal */}
       <Modal 
