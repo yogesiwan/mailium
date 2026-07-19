@@ -29,9 +29,18 @@ const handleTrackingEvent = async (trackingId, type, req, additionalData = {}) =
     const userAgent = req.headers['user-agent'] || '';
 
     // Detect Bot or Ignored IP
-    const botDetected = isbot(userAgent) || userAgent.includes('GoogleImageProxy');
+    let botDetected = isbot(userAgent) || userAgent.includes('GoogleImageProxy');
     const ignoredIpDoc = await IgnoredIP.findOne({ ip });
     const isIgnored = !!ignoredIpDoc;
+
+    // Defend against enterprise spam scanners (like Microsoft ATP) that spoof browsers
+    // and fetch the tracking pixel instantly upon delivery.
+    if (!botDetected && emailData.sentAt) {
+      const timeSinceSent = Date.now() - new Date(emailData.sentAt).getTime();
+      if (timeSinceSent < 30000) { // 30 seconds
+        botDetected = true;
+      }
+    }
 
     // Create event
     await TrackingEvent.create({

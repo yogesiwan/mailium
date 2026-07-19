@@ -206,7 +206,7 @@ router.get('/ignored-ips', async (req, res, next) => {
 router.post('/ignored-ips', async (req, res, next) => {
   try {
     const { label } = req.body;
-    // req.ip works correctly due to app.set('trust proxy', 1) in index.js
+    // req.ip works correctly due to app.set('trust proxy', true) in index.js
     let rawIp = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     // Extract first IP if it's a comma-separated list
     const ip = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : rawIp;
