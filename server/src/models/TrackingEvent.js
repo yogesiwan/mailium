@@ -8,7 +8,9 @@ const trackingEventSchema = new mongoose.Schema({
   metadata: {
     url: String,
     userAgent: String,
-    ip: String
+    ip: String,
+    isBot: Boolean,
+    isIgnored: Boolean
   }
 }, { timestamps: true });
 
