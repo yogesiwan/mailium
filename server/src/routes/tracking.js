@@ -29,7 +29,10 @@ const handleTrackingEvent = async (trackingId, type, req, additionalData = {}) =
     const userAgent = req.headers['user-agent'] || '';
 
     // Detect Bot or Ignored IP
-    let botDetected = isbot(userAgent) || userAgent.includes('GoogleImageProxy');
+    // IMPORTANT: GoogleImageProxy is Gmail's image proxy that fetches images ON BEHALF
+    // of real users when they open emails. It is NOT a bot. The isbot() library
+    // incorrectly flags it, so we explicitly exclude it from bot detection.
+    let botDetected = isbot(userAgent) && !userAgent.includes('GoogleImageProxy');
     const ignoredIpDoc = await IgnoredIP.findOne({ ip });
     const isIgnored = !!ignoredIpDoc;
 
