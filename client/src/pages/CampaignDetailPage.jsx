@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import api from '../api';
-import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch, Zap, Timer, Settings, FileText, Moon } from 'lucide-react';
+import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch, Zap, Timer, Settings, FileText, Moon, GripVertical, X, Check, ArrowDownUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 import FollowUpEditor from '../components/campaign/FollowUpEditor';
 import ComposeEditor from '../components/campaign/ComposeEditor';
@@ -57,6 +57,17 @@ const CampaignDetailPage = () => {
   const [isBranching, setIsBranching] = useState(false);
   const actionsRef = useRef(null);
   const isSequenceDirtyRef = useRef(false);
+
+  // Add Recipient State
+  const [isAddingRecipient, setIsAddingRecipient] = useState(false);
+  const [newRecipientData, setNewRecipientData] = useState({ email: '' });
+  const [isSubmittingRecipient, setIsSubmittingRecipient] = useState(false);
+
+  // Reorder State
+  const [isReordering, setIsReordering] = useState(false);
+  const [draggedRecipientIndex, setDraggedRecipientIndex] = useState(null);
+  const [orderedRecipients, setOrderedRecipients] = useState([]);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
 
   useEffect(() => {
     isSequenceDirtyRef.current = isSequenceDirty;
@@ -411,6 +422,80 @@ const CampaignDetailPage = () => {
       toast.error(err.response?.data?.error || 'Failed to cancel follow-up schedule');
     } finally {
       setCancellingFollowUpOrder(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!isReordering) {
+      setOrderedRecipients(recipientsData.recipients || []);
+    }
+  }, [recipientsData.recipients, isReordering]);
+
+  const handleAddRecipient = async () => {
+    if (!newRecipientData.email) {
+      toast.error('Email is required');
+      return;
+    }
+
+    setIsSubmittingRecipient(true);
+    try {
+      const payload = {
+        email: newRecipientData.email,
+        data: { ...newRecipientData }
+      };
+      delete payload.data.email;
+
+      await api.post(`/campaigns/${id}/recipients/add`, payload);
+      toast.success('Recipient added');
+      setIsAddingRecipient(false);
+      setNewRecipientData({ email: '' });
+      fetchRecipients();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to add recipient');
+    } finally {
+      setIsSubmittingRecipient(false);
+    }
+  };
+
+  const handleDragStart = (e, index) => {
+    setDraggedRecipientIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    if (draggedRecipientIndex === null || draggedRecipientIndex === index) return;
+    
+    // Only allow dragging over other pending recipients
+    if (orderedRecipients[index].status !== 'pending') return;
+
+    const newRecipients = [...orderedRecipients];
+    const draggedItem = newRecipients[draggedRecipientIndex];
+    newRecipients.splice(draggedRecipientIndex, 1);
+    newRecipients.splice(index, 0, draggedItem);
+    
+    setOrderedRecipients(newRecipients);
+    setDraggedRecipientIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedRecipientIndex(null);
+  };
+
+  const handleSaveOrder = async () => {
+    setIsSavingOrder(true);
+    try {
+      // Send the ordered IDs to the backend
+      const orderedIds = orderedRecipients.map(r => r._id);
+      const startIndex = (recipientsPage - 1) * 10;
+      await api.patch(`/campaigns/${id}/recipients/reorder`, { orderedIds, startIndex });
+      toast.success('Queue order saved');
+      setIsReordering(false);
+      fetchRecipients(); // Refresh list to get natural state from backend
+    } catch (err) {
+      toast.error('Failed to save order');
+    } finally {
+      setIsSavingOrder(false);
     }
   };
 
@@ -969,10 +1054,53 @@ const CampaignDetailPage = () => {
         <div className="lg:col-span-2">
           <div className="card shadow-sm h-full flex flex-col">
             <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-xl">
-              <h3 className="text-lg font-semibold text-gray-900">Recipients</h3>
-              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-medium">
-                {recipientsData.total} Total
-              </span>
+              <div className="flex items-center gap-3">
+                <h3 className="text-lg font-semibold text-gray-900">Recipients</h3>
+                <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-medium">
+                  {recipientsData.total} Total
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {!isReordering ? (
+                  <>
+                    <button 
+                      className="btn-outline text-sm gap-2"
+                      onClick={() => setIsAddingRecipient(!isAddingRecipient)}
+                      disabled={campaign.status === 'completed'}
+                    >
+                      <Plus size={16} /> Add
+                    </button>
+                    <button 
+                      className="btn-outline text-sm gap-2"
+                      onClick={() => setIsReordering(true)}
+                      disabled={recipientsData.recipients.length === 0}
+                    >
+                      <ArrowDownUp size={16} /> Reorder
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button 
+                      className="px-3 py-1.5 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                      onClick={() => {
+                        setIsReordering(false);
+                        setOrderedRecipients(recipientsData.recipients);
+                      }}
+                      disabled={isSavingOrder}
+                    >
+                      <X size={16} className="inline mr-1 -mt-0.5" /> Discard
+                    </button>
+                    <button 
+                      className="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
+                      onClick={handleSaveOrder}
+                      disabled={isSavingOrder}
+                    >
+                      {isSavingOrder ? <Loader2 size={16} className="animate-spin inline mr-1 -mt-0.5" /> : <Check size={16} className="inline mr-1 -mt-0.5" />}
+                      Save Order
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             
             <div className="overflow-x-auto flex-1">
@@ -989,17 +1117,76 @@ const CampaignDetailPage = () => {
                 <tbody className="divide-y divide-gray-100">
                   {loadingRecipients ? (
                     <tr>
-                      <td colSpan="4" className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
                         <div className="flex flex-col items-center justify-center gap-3">
                           <Loader2 className="animate-spin text-gray-400" size={24} />
                           <span>Loading recipients...</span>
                         </div>
                       </td>
                     </tr>
-                  ) : recipientsData.recipients.length > 0 ? (
-                    recipientsData.recipients.map(r => (
-                      <tr key={r._id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-6 py-4 font-medium text-gray-900">{r.email}</td>
+                  ) : (isReordering ? orderedRecipients : recipientsData.recipients).length > 0 || isAddingRecipient ? (
+                    <>
+                      {isAddingRecipient && (
+                        <tr className="bg-blue-50/50">
+                          <td colSpan="5" className="px-6 py-4 border-b border-blue-100">
+                            <div className="flex flex-wrap gap-3 items-end">
+                              <div className="flex-1 min-w-[200px]">
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+                                <input
+                                  type="email"
+                                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  placeholder="email@example.com"
+                                  value={newRecipientData.email || ''}
+                                  onChange={e => setNewRecipientData(prev => ({ ...prev, email: e.target.value }))}
+                                  disabled={isSubmittingRecipient}
+                                />
+                              </div>
+                              {(recipientsData.recipients.length > 0 ? Object.keys(recipientsData.recipients[0].data || {}) : []).map(key => (
+                                <div key={key} className="flex-1 min-w-[150px]">
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">{key}</label>
+                                  <input
+                                    type="text"
+                                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder={key}
+                                    value={newRecipientData[key] || ''}
+                                    onChange={e => setNewRecipientData(prev => ({ ...prev, [key]: e.target.value }))}
+                                    disabled={isSubmittingRecipient}
+                                  />
+                                </div>
+                              ))}
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
+                                  onClick={handleAddRecipient}
+                                  disabled={isSubmittingRecipient}
+                                >
+                                  {isSubmittingRecipient ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                  Save
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      {(isReordering ? orderedRecipients : recipientsData.recipients).map((r, index) => (
+                        <tr 
+                          key={r._id} 
+                          className={`hover:bg-gray-50/50 transition-colors ${
+                            isReordering && r.status === 'pending' ? 'cursor-move' : ''
+                          } ${
+                            isReordering && r.status !== 'pending' ? 'opacity-50' : ''
+                          } ${
+                            draggedRecipientIndex === index ? 'bg-blue-50/50 border-t border-b border-blue-200' : ''
+                          }`}
+                          draggable={isReordering && r.status === 'pending'}
+                          onDragStart={(e) => handleDragStart(e, index)}
+                          onDragOver={(e) => handleDragOver(e, index)}
+                          onDragEnd={handleDragEnd}
+                        >
+                          <td className="px-6 py-4 font-medium text-gray-900 flex items-center gap-2">
+                            {isReordering && r.status === 'pending' && <GripVertical size={16} className="text-gray-400 cursor-move" />}
+                            {r.email}
+                          </td>
                         <td className="px-6 py-4">
                           <span className={`px-2.5 py-1 rounded-md text-xs font-medium capitalize inline-flex items-center gap-1.5
                             ${r.status === 'sent' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 
@@ -1021,10 +1208,11 @@ const CampaignDetailPage = () => {
                           {r.mainEmail?.clicked ? <span className="text-emerald-500 flex justify-center"><CheckCircle2 size={18}/></span> : <span className="text-gray-300">-</span>}
                         </td>
                       </tr>
-                    ))
+                    ))}
+                    </>
                   ) : (
                     <tr>
-                      <td colSpan="4" className="px-6 py-12 text-center text-gray-500 bg-gray-50/30">
+                      <td colSpan="5" className="px-6 py-12 text-center text-gray-500 bg-gray-50/30">
                         No recipients found.
                       </td>
                     </tr>

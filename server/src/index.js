@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const connectDB = require('./config/db');
+const { connectDB, isMongoConnected } = require('./config/db');
 const agenda = require('./config/agenda');
 const errorHandler = require('./middleware/errorHandler');
 
@@ -43,6 +43,18 @@ app.get('/', (req, res) => {
 
 app.get('/health', (req, res) => {
   res.json({ success: true, status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/live', (req, res) => {
+  res.status(200).json({ success: true, status: 'alive', timestamp: new Date().toISOString() });
+});
+
+app.get('/ready', (req, res) => {
+  if (isMongoConnected()) {
+    res.status(200).json({ success: true, status: 'ready', mongo: 'connected', timestamp: new Date().toISOString() });
+  } else {
+    res.status(503).json({ success: false, status: 'not_ready', mongo: 'disconnected', timestamp: new Date().toISOString() });
+  }
 });
 
 // Error Handler

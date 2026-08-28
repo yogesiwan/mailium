@@ -22,6 +22,7 @@ router.get('/', async (req, res, next) => {
     }
 
     const recipients = await Recipient.find(query)
+      .sort({ sortOrder: 1, _id: 1 })
       .skip((page - 1) * limit)
       .limit(limit);
 
@@ -50,13 +51,19 @@ router.post('/import', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Please provide recipients array' });
     }
 
-    // Format for bulk insert
-    const formattedRecipients = recipientsData.map(r => ({
+    // Get the current max sortOrder for this campaign
+    const maxDoc = await Recipient.findOne({ campaignId, user: req.user._id })
+      .sort({ sortOrder: -1 }).select('sortOrder').lean();
+    const startOrder = (maxDoc?.sortOrder ?? -1) + 1;
+
+    // Format for bulk insert with sortOrder
+    const formattedRecipients = recipientsData.map((r, i) => ({
       user: req.user._id,
       campaignId,
       email: r.email,
       data: r.data || {},
-      status: 'pending'
+      status: 'pending',
+      sortOrder: startOrder + i
     }));
 
     // Insert ignoring duplicates
@@ -106,6 +113,86 @@ router.delete('/', async (req, res, next) => {
     await Campaign.findOneAndUpdate({ _id: campaignId, user: req.user._id }, { 'stats.totalRecipients': 0 });
     
     res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   POST /api/campaigns/:campaignId/recipients/add
+// @desc    Add a single recipient to an existing campaign
+router.post('/add', async (req, res, next) => {
+  try {
+    const { campaignId } = req.params;
+    const { email, data } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email is required' });
+    }
+
+    // Verify campaign belongs to user
+    const campaign = await Campaign.findOne({ _id: campaignId, user: req.user._id });
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+
+    // Check for duplicate
+    const existing = await Recipient.findOne({ campaignId, email, user: req.user._id });
+    if (existing) {
+      return res.status(409).json({ success: false, error: 'Recipient with this email already exists in this campaign' });
+    }
+
+    // Get max sortOrder to append at end
+    const maxDoc = await Recipient.findOne({ campaignId, user: req.user._id })
+      .sort({ sortOrder: -1 }).select('sortOrder').lean();
+    const sortOrder = (maxDoc?.sortOrder ?? -1) + 1;
+
+    const recipient = await Recipient.create({
+      user: req.user._id,
+      campaignId,
+      email,
+      data: data || {},
+      status: 'pending',
+      sortOrder
+    });
+
+    // Update campaign recipient count
+    const totalRecipients = await Recipient.countDocuments({ campaignId, user: req.user._id });
+    await Campaign.findOneAndUpdate({ _id: campaignId, user: req.user._id }, { 'stats.totalRecipients': totalRecipients });
+
+    res.json({ success: true, recipient });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   PATCH /api/campaigns/:campaignId/recipients/reorder
+// @desc    Reorder pending recipients by providing ordered array of IDs
+router.patch('/reorder', async (req, res, next) => {
+  try {
+    const { campaignId } = req.params;
+    const { orderedIds, startIndex = 0 } = req.body;
+
+    if (!orderedIds || !Array.isArray(orderedIds) || orderedIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'orderedIds array is required' });
+    }
+
+    // Verify campaign belongs to user
+    const campaign = await Campaign.findOne({ _id: campaignId, user: req.user._id });
+    if (!campaign) {
+      return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+
+    // Bulk update sortOrder based on array position
+    const bulkOps = orderedIds.map((id, index) => ({
+      updateOne: {
+        filter: { _id: id, campaignId, user: req.user._id },
+        update: { $set: { sortOrder: startIndex + index } }
+      }
+    }));
+
+    await Recipient.bulkWrite(bulkOps);
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

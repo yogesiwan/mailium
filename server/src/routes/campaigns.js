@@ -312,7 +312,7 @@ router.get('/:id/recipients', async (req, res, next) => {
     }
 
     const recipients = await Recipient.find(query)
-      .sort({ _id: 1 })
+      .sort({ sortOrder: 1, _id: 1 })
       .skip((page - 1) * limit)
       .limit(limit);
 

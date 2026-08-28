@@ -5,6 +5,7 @@ const recipientSchema = new mongoose.Schema({
   campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign', index: true, required: true },
   email: { type: String, required: true },
   data: mongoose.Schema.Types.Mixed,
+  sortOrder: { type: Number, default: 0 },
 
   status: {
     type: String,
@@ -57,6 +58,7 @@ const recipientSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 recipientSchema.index({ campaignId: 1, email: 1 }, { unique: true });
+recipientSchema.index({ campaignId: 1, sortOrder: 1 });
 recipientSchema.index({ status: 1 });
 recipientSchema.index({ "mainEmail.threadId": 1 });
 

@@ -34,7 +34,7 @@ module.exports = function(agenda) {
         query.email = { $nin: campaign.excludedRecipients };
       }
 
-      const recipients = await Recipient.find(query);
+      const recipients = await Recipient.find(query).sort({ sortOrder: 1, _id: 1 });
 
       if (recipients.length === 0) {
         campaign.status = 'completed';
