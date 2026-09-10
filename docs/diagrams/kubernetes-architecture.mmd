@@ -1,0 +1,37 @@
+flowchart TB
+    user([Internet]) --> dns[mailiumk8.yogeshsiwan.xyz]
+    dns --> alb[AWS Application Load Balancer]
+    alb -->|HTTPS :443| tls[ACM TLS termination]
+    alb -->|HTTP :80 redirects| tls
+    tls --> nodeport[NodePort :32341]
+
+    subgraph cluster[Self-managed Kubernetes cluster]
+        nodeport --> routerSvc[cache-router Service :8080]
+        routerSvc --> router1[cache-router Pod]
+        routerSvc --> router2[cache-router Pod]
+
+        router1 -->|/api /t /uploads /health| runtimeSvc[cache-runtime ClusterIP :5001]
+        router2 -->|/api /t /uploads /health| runtimeSvc
+        runtimeSvc --> runtime[cache-runtime Pod]
+
+        metrics[Metrics Server] -. metrics .-> hpa[HPA: CPU 50%, 1-10 replicas]
+        hpa -. scales .-> runtime
+        lbc[AWS Load Balancer Controller] -. reconciles .-> alb
+        calico[Calico CNI] -. pod networking .-> router1
+        calico -. pod networking .-> runtime
+    end
+
+    runtime --> mongo[(MongoDB)]
+    runtime --> google[Google APIs]
+
+    classDef public fill:#0969DA,color:#fff,stroke:#0969DA
+    classDef aws fill:#232F3E,color:#fff,stroke:#232F3E
+    classDef k8s fill:#326CE5,color:#fff,stroke:#326CE5
+    classDef app fill:#1a7f37,color:#fff,stroke:#1a7f37
+    classDef data fill:#8250df,color:#fff,stroke:#8250df
+
+    class user,dns public
+    class alb,tls aws
+    class nodeport,routerSvc,runtimeSvc,metrics,hpa,lbc,calico k8s
+    class router1,router2,runtime app
+    class mongo,google data
