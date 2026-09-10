@@ -30,42 +30,51 @@ The public entry point is the router layer. The backend remains an internal `Clu
 
 ```mermaid
 flowchart TB
-    user([Internet]) --> dns[mailiumk8.yogeshsiwan.xyz]
-    dns --> alb[AWS Application Load Balancer]
-    alb -->|HTTPS :443| tls[ACM TLS termination]
-    alb -->|HTTP :80 redirects| tls
-    tls --> nodeport[NodePort :32341]
+    user([Internet User]) --> dns["DNS · GoDaddy<br/>mailiumk8.yogeshsiwan.xyz"]
+    dns --> alb["AWS Application Load Balancer<br/>ACM TLS :443 · HTTP→HTTPS redirect"]
+    alb --> tg["Target Group :32341<br/>EC2 instance targets (m1, m2)"]
 
-    subgraph cluster[Self-managed Kubernetes cluster]
-        nodeport --> routerSvc[cache-router Service :8080]
-        routerSvc --> router1[cache-router Pod]
-        routerSvc --> router2[cache-router Pod]
+    subgraph cluster["Self-managed Kubernetes Cluster · kubeadm + containerd + Calico"]
+        tg -->|"NodePort 32341 → Service :8080"| gwSvc["mailium-gateway Service<br/>NodePort · public entry point"]
 
-        router1 -->|/api /t /uploads /health| runtimeSvc[cache-runtime ClusterIP :5001]
-        router2 -->|/api /t /uploads /health| runtimeSvc
-        runtimeSvc --> runtime[cache-runtime Pod]
+        gwSvc --> gw1["mailium-gateway pod<br/>Nginx + React/Vite static build"]
+        gwSvc --> gw2["mailium-gateway pod<br/>Nginx + React/Vite static build"]
 
-        metrics[Metrics Server] -. metrics .-> runtime
-        hpa[HPA: 1-10 replicas, CPU 50%] -. scales .-> runtime
-        lbc[AWS Load Balancer Controller] -. reconciles .-> alb
-        calico[Calico CNI] -. pod networking .-> router1
-        calico -. pod networking .-> runtime
+        gw1 -->|"/api /t /uploads /health"| engSvc["mailium-engine Service<br/>ClusterIP :5001 · internal only"]
+        gw2 -->|"/api /t /uploads /health"| engSvc
+
+        engSvc --> e1["mailium-engine pod<br/>Express + Mongoose + Agenda"]
+        engSvc --> e2["mailium-engine pod<br/>HPA scaled"]
+        engSvc --> e3["mailium-engine pod<br/>HPA scaled"]
+        engSvc --> e4["mailium-engine pod<br/>HPA scaled"]
+        engSvc --> e5["mailium-engine pod<br/>HPA scaled"]
+        engSvc --> e6["mailium-engine pod<br/>HPA scaled"]
+        engSvc --> e7["mailium-engine pod<br/>HPA scaled"]
+
+        metrics["Metrics Server"] -. metrics .-> hpa["HPA · mailium-engine<br/>min 1 / max 10 replicas<br/>CPU target 50%<br/>(scaled-out state shown)"]
+        hpa -. scales .-> engSvc
+        lbc["AWS Load Balancer Controller"] -. reconciles .-> alb
+        calico["Calico CNI"] -. pod networking .-> gw1
+        calico -. pod networking .-> e1
     end
 
-    runtime --> mongo[(MongoDB)]
-    runtime --> google[Google APIs]
+    e1 --> mongo[("MongoDB<br/>Mongoose ODM · Agenda job store")]
+    e1 --> gmail["Gmail API<br/>OAuth2 · Nodemailer · reply sync"]
+    e1 --> sheets["Google Sheets API<br/>recipient import"]
 
     classDef public fill:#0969DA,color:#fff,stroke:#0969DA
     classDef aws fill:#232F3E,color:#fff,stroke:#232F3E
     classDef k8s fill:#326CE5,color:#fff,stroke:#326CE5
     classDef app fill:#1a7f37,color:#fff,stroke:#1a7f37
+    classDef scaled fill:#e6f4ea,color:#1a7f37,stroke:#1a7f37,stroke-width:1px,stroke-dasharray:4 3
     classDef data fill:#8250df,color:#fff,stroke:#8250df
 
     class user,dns public
-    class alb,tls aws
-    class nodeport,routerSvc,runtimeSvc,metrics,hpa,lbc,calico k8s
-    class router1,router2,runtime app
-    class mongo,google data
+    class alb,tg,lbc aws
+    class gwSvc,engSvc,metrics,hpa,calico k8s
+    class gw1,gw2,e1 app
+    class e2,e3,e4,e5,e6,e7 scaled
+    class mongo,gmail,sheets data
 ```
 
 ### Request path
