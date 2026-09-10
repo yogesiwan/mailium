@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cache-router
+  namespace: mailium
+  labels:
+    app: cache-router
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cache-router
+  template:
+    metadata:
+      labels:
+        app: cache-router
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: cache-router
+          image: ghcr.io/yogesiwan/mailium-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
