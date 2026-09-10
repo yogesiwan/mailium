@@ -104,7 +104,7 @@ flowchart LR
     runtime --> google[Google APIs]
 ```
 
-The Compose file builds `server/` for `cache-runtime` and `client/` for `cache-router`. The runtime exposes port `5001` internally, while the router publishes its port through the configured router port. fileciteturn21file0
+The Compose file builds `server/` for `cache-runtime` and `client/` for `cache-router`. The runtime exposes port `5001` internally, while the router publishes its port through the configured router port.
 
 ## Kubernetes evolution
 
