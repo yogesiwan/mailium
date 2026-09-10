@@ -34,9 +34,14 @@ The actual application secrets and registry credentials are intentionally not co
 
 ## Apply order
 
+Create the namespace and required Secrets first. `secret.example.yaml` is a template and should **not** be applied unchanged.
+
 ```bash
 kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/backend/secret.example.yaml
+
+# Create mailium-backend-env from your real values using your preferred
+# secret-management method. Do not commit the resulting Secret manifest.
+
 kubectl apply -f k8s/backend/deployment.yaml
 kubectl apply -f k8s/backend/service.yaml
 kubectl apply -f k8s/backend/hpa.yaml
@@ -45,7 +50,7 @@ kubectl apply -f k8s/frontend/service.yaml
 kubectl apply -f k8s/ingress.yaml
 ```
 
-Before applying to a real cluster, replace the placeholder values in `secret.example.yaml` and `ingress.yaml`, or create those resources through a separate secret-management workflow.
+Before applying to a real cluster, replace the placeholder values in `ingress.yaml` and create the required Secrets separately.
 
 ## Verify
 
@@ -58,4 +63,4 @@ kubectl top pods -n mailium
 
 ## Important note
 
-The manifests are intended to preserve the implemented application configuration and provide a reproducible starting point. Cloud-specific values such as ACM certificate ARNs, subnet IDs, and registry credentials are deliberately parameterized rather than hard-coded into the repository.
+The manifests preserve the implemented application configuration and provide a reproducible starting point. Cloud-specific values such as ACM certificate ARNs, subnet IDs, and registry credentials are deliberately parameterized rather than hard-coded into the repository.
