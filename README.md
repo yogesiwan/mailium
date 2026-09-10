@@ -1,74 +1,184 @@
 # Mailium
 
-A self-hosted email campaign management app modeled after Mailmeteor, built for cold-emailing workflows with custom recipient filtering and campaign templates.
+A self-hosted email campaign management application modeled after Mailmeteor, built around cold-emailing workflows, recipient filtering, campaign templates, scheduling, follow-ups, and Gmail integration.
 
-## Tech Stack
+## Application
+
+Mailium is a full-stack application with a React/Vite frontend and a Node.js/Express backend.
 
 ### Backend
+
 - Node.js + Express
 - MongoDB + Mongoose
-- Nodemailer + Gmail API (OAuth2)
-- Agenda.js (MongoDB-backed job scheduling)
+- Gmail API + Nodemailer (OAuth2)
+- Agenda.js for MongoDB-backed background jobs
 
 ### Frontend
-- React (Vite)
-- TipTap (Rich Text Editor)
+
+- React + Vite
 - React Router
-- Lucide React (Icons)
+- TipTap rich-text editor
+- Lucide React
 
-## Setup Instructions
+The application includes campaign management, campaign details, analytics/reporting, templates, settings, recipient selection/import, attachments, test emails, scheduling, follow-ups, and Google integrations.
 
-1. Clone the repository
-2. Navigate to `server` and run `npm install`
-3. Ensure `.env` is configured properly in `server/.env`
-4. Run `npm start` (or `npm run dev` if configured) in the `server` directory
-5. Navigate to `client` and run `npm install`
-6. Run `npm run dev` in the `client` directory
-7. Access the app at `http://localhost:5173`
+## Deployment Evolution
 
-## Production Deployment
+Mailium started as a rootless Docker Compose deployment and was subsequently reproduced on a self-managed Kubernetes cluster as a platform-engineering experiment.
 
-Production uses rootless Docker Compose with service-style container names:
-
-- `system-cache-runtime`: Express API, Agenda jobs, Gmail/reply sync
-- `system-cache-router`: Nginx static frontend and `/api`, `/t`, `/uploads` proxy
-
-On the VM:
-
-```bash
-ssh system-cache@143.244.128.71
-export DOCKER_HOST=unix:///run/user/1002/docker.sock
-docker context show
-mkdir -p /var/lib/system-cache/apps/mailium
-cd /var/lib/system-cache/apps/mailium
-cp .env.example .env
+```text
+Docker Compose baseline
+        |
+        v
+Self-managed Kubernetes (kubeadm)
+        |
+        +-- containerd
+        +-- Calico CNI
+        +-- Metrics Server
+        +-- Horizontal Pod Autoscaler
+        +-- AWS Load Balancer Controller
+        +-- AWS ALB + ACM TLS
 ```
 
-Fill `.env` on the VM only. Do not commit real credentials. For the current rootless setup, use:
+The Kubernetes environment is intentionally documented as a learning/portfolio deployment rather than being presented as a production-grade highly available cluster.
 
-```bash
-TRACKING_BASE_URL=http://143.244.128.71:8091
-FRONTEND_URL=http://143.244.128.71:8091
-ROUTER_PORT=8091
+## Kubernetes Architecture
+
+```text
+                        Internet
+                           |
+                    mailiumk8.yogeshsiwan.xyz
+                           |
+                    AWS Application LB
+                    HTTP :80 -> HTTPS :443
+                           |
+                    ACM TLS termination
+                           |
+                    NodePort :32341
+                           |
+                 +---------+---------+
+                 |                   |
+             EC2 m1             EC2 m2
+          control plane          worker
+                 |                   |
+                 +---------+---------+
+                           |
+                    cache-router
+                    Service :8080
+                           |
+                 +---------+---------+
+                 |                   |
+          cache-router Pods   cache-runtime Service
+                                   :5001
+                                       |
+                                cache-runtime Pod
+                                       |
+                              MongoDB / Gmail APIs
 ```
 
-Deploy or redeploy:
+### Kubernetes stack
 
-```bash
-docker compose up -d --build
-docker compose ps
-docker compose logs -f
+- Kubernetes bootstrapped with `kubeadm`
+- Ubuntu EC2 nodes in AWS `eu-north-1`
+- `containerd` as the container runtime
+- Calico CNI for pod networking
+- AWS Load Balancer Controller for ALB provisioning
+- AWS Application Load Balancer for public ingress
+- AWS Certificate Manager (ACM) for TLS
+- Metrics Server for resource metrics
+- Horizontal Pod Autoscaler for backend CPU-based scaling
+
+### Traffic flow
+
+Public traffic reaches only the `cache-router` service. The router serves the built frontend and reverse-proxies backend paths to the internal `cache-runtime` service.
+
+```text
+HTTPS :443
+   |
+   v
+AWS ALB
+   |
+   v
+NodePort :32341
+   |
+   v
+cache-router :8080
+   |
+   +---- /              -> React frontend
+   +---- /api/           -> cache-runtime :5001
+   +---- /t/             -> cache-runtime :5001
+   +---- /uploads/       -> cache-runtime :5001
+   +---- /health         -> cache-runtime :5001
 ```
 
-For reliable Google OAuth callbacks and email tracking in production, use a real HTTPS domain when possible and set `TRACKING_BASE_URL` and `FRONTEND_URL` to that domain.
+`cache-runtime` remains a `ClusterIP` service and is not directly exposed through the ALB.
 
-## GitHub Actions CD
+## Autoscaling
 
-CD can be added after these GitHub repository secrets are configured:
+The backend uses an `autoscaling/v2` Horizontal Pod Autoscaler with:
 
-- `VM_HOST`: `143.244.128.71`
-- `VM_USER`: `system-cache`
-- `VM_SSH_KEY`: private SSH key that can connect as `system-cache`
-- `DEPLOY_PATH`: `/var/lib/system-cache/apps/mailium`
+- minimum replicas: 1
+- maximum replicas: 10
+- CPU target: 50%
+- Metrics Server as the metrics source
+- CPU requests/limits defined on the backend Deployment
 
-The deploy job should SSH into the VM, export `DOCKER_HOST=unix:///run/user/1002/docker.sock`, run `git pull`, and then run `docker compose up -d --build`. Keep the production `.env` on the VM; do not store application credentials in GitHub Actions unless you explicitly want the workflow to manage the env file.
+Scale-out and scale-in were verified against live cluster metrics during the Kubernetes deployment work.
+
+## Current Kubernetes Deployment
+
+The main workloads are:
+
+| Workload | Role | Exposure |
+|---|---|---|
+| `cache-router` | React frontend + Nginx reverse proxy | NodePort behind AWS ALB |
+| `cache-runtime` | Express API + Agenda workers | Internal ClusterIP |
+| `metrics-server` | Resource metrics | Cluster-internal |
+| `aws-load-balancer-controller` | Reconciles Kubernetes ingress with AWS ALB resources | Cluster-internal |
+
+The cluster currently uses two EC2 nodes. The control-plane node is larger than the worker because the control plane and supporting components consume a meaningful amount of memory.
+
+## Local Development
+
+1. Clone the repository.
+2. Install backend dependencies:
+
+```bash
+cd server
+npm install
+```
+
+3. Configure the backend environment in `server/.env`.
+4. Start the backend:
+
+```bash
+npm run dev
+```
+
+5. Install and start the frontend:
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+6. Open the Vite development URL shown by the frontend, typically `http://localhost:5173`.
+
+## Documentation
+
+Detailed infrastructure notes are kept under [`docs/`](docs/):
+
+- [`docs/architecture.md`](docs/architecture.md) — application and Kubernetes architecture
+- [`docs/kubernetes.md`](docs/kubernetes.md) — kubeadm, containerd, Calico, workloads, and services
+- [`docs/aws.md`](docs/aws.md) — EC2, ALB, ACM, networking, and controller integration
+- [`docs/autoscaling.md`](docs/autoscaling.md) — Metrics Server and HPA implementation/testing
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — infrastructure issues encountered and how they were resolved
+
+Kubernetes manifests are kept under [`k8s/`](k8s/) as the deployment configuration is captured in the repository.
+
+## Production Baseline
+
+The long-running application deployment remains available as a rootless Docker Compose setup. Kubernetes is documented separately so the repository shows both the original container deployment and the subsequent orchestration work.
+
+For security, real credentials and production `.env` files must never be committed to the repository. Use `.env.example` as the configuration template.
