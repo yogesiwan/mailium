@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cache-router-ingress
+  namespace: mailium
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: instance
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/certificate-arn: '<ACM_CERTIFICATE_ARN>'
+    # Replace with the subnets used by the target AWS VPC.
+    alb.ingress.kubernetes.io/subnets: '<PUBLIC_SUBNET_A>,<PUBLIC_SUBNET_B>'
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cache-router
+                port:
+                  number: 8080
