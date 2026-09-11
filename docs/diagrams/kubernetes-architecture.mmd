@@ -4,23 +4,23 @@ flowchart TB
     alb --> tg["Target Group :32341<br/>EC2 instance targets (m1, m2)"]
 
     subgraph cluster["Self-managed Kubernetes Cluster · kubeadm + containerd + Calico"]
-        tg -->|"NodePort 32341 → Service :8080"| gwSvc["mailium-gateway Service<br/>NodePort · public entry point"]
+        tg -->|"NodePort 32341 → Service :8080"| gwSvc["cache-router Service<br/>NodePort · public entry point"]
 
-        gwSvc --> gw1["mailium-gateway pod<br/>Nginx + React/Vite static build"]
-        gwSvc --> gw2["mailium-gateway pod<br/>Nginx + React/Vite static build"]
+        gwSvc --> gw1["cache-router pod<br/>Nginx + React/Vite static build"]
+        gwSvc --> gw2["cache-router pod<br/>Nginx + React/Vite static build"]
 
-        gw1 -->|"/api /t /uploads /health"| engSvc["mailium-engine Service<br/>ClusterIP :5001 · internal only"]
+        gw1 -->|"/api /t /uploads /health"| engSvc["cache-runtime Service<br/>ClusterIP :5001 · internal only"]
         gw2 -->|"/api /t /uploads /health"| engSvc
 
-        engSvc --> e1["mailium-engine pod<br/>Express + Mongoose + Agenda"]
-        engSvc --> e2["mailium-engine pod<br/>HPA scaled"]
-        engSvc --> e3["mailium-engine pod<br/>HPA scaled"]
-        engSvc --> e4["mailium-engine pod<br/>HPA scaled"]
-        engSvc --> e5["mailium-engine pod<br/>HPA scaled"]
-        engSvc --> e6["mailium-engine pod<br/>HPA scaled"]
-        engSvc --> e7["mailium-engine pod<br/>HPA scaled"]
+        engSvc --> e1["cache-runtime pod<br/>Express + Mongoose + Agenda"]
+        engSvc --> e2["cache-runtime pod<br/>HPA scaled"]
+        engSvc --> e3["cache-runtime pod<br/>HPA scaled"]
+        engSvc --> e4["cache-runtime pod<br/>HPA scaled"]
+        engSvc --> e5["cache-runtime pod<br/>HPA scaled"]
+        engSvc --> e6["cache-runtime pod<br/>HPA scaled"]
+        engSvc --> e7["cache-runtime pod<br/>HPA scaled"]
 
-        metrics["Metrics Server"] -. metrics .-> hpa["HPA · mailium-engine<br/>min 1 / max 10 replicas<br/>CPU target 50%<br/>(scaled-out state shown)"]
+        metrics["Metrics Server"] -. metrics .-> hpa["HPA · cache-runtime<br/>min 1 / max 10 replicas<br/>CPU target 50%<br/>(scaled-out state shown)"]
         hpa -. scales .-> engSvc
         lbc["AWS Load Balancer Controller"] -. reconciles .-> alb
         calico["Calico CNI"] -. pod networking .-> gw1

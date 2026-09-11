@@ -191,15 +191,3 @@ kubectl describe pod -n mailium <pod-name>
 kubectl logs -n mailium <pod-name>
 kubectl get events -n mailium --sort-by=.lastTimestamp
 ```
-
-## Known limitations
-
-The current cluster is a learning/portfolio environment rather than a production-ready platform. Known gaps include:
-
-- router replicas are not guaranteed to be distributed across nodes;
-- node security groups are broader than a production deployment should require;
-- AWS Load Balancer Controller currently uses the EC2 node instance role rather than workload identity;
-- the control plane is not highly available;
-- the worker node has significantly less memory than the control-plane node and needs monitoring under load.
-
-These limitations are documented intentionally rather than hidden behind generic claims of production readiness.
