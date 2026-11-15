@@ -6,6 +6,20 @@ const campaignSchema = new mongoose.Schema({
   name: { type: String, required: true },
   companyName: String,
   roleName: String,
+  type: { type: String, enum: ['standard', 'single'], default: 'standard' },
+  isArchived: { type: Boolean, default: false },
+  autobot: {
+    provider: { type: String, enum: ['autobot'] },
+    integrationId: String,
+    scanDate: String,
+    syncRecordId: { type: mongoose.Schema.Types.ObjectId, ref: 'AutoBotDraftSync' },
+    revision: { type: Number, default: 0 },
+    syncStatus: { type: String, enum: ['ready', 'reconciling'], default: 'ready' },
+    activatedAt: Date,
+    activationRevision: Number,
+    enqueueStatus: { type: String, enum: ['pending', 'enqueued'] },
+    enqueueGeneration: { type: Number, default: 0 }
+  },
   status: {
     type: String,
     enum: ["draft", "scheduled", "sending", "paused", "completed", "failed"],

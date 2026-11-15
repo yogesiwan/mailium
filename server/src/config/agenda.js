@@ -19,11 +19,13 @@ agenda.on('error', (err) => {
 require('../jobs/sendEmails')(agenda);
 require('../jobs/sendFollowUps')(agenda);
 require('../jobs/checkReplies')(agenda);
+require('../jobs/recoverAutoBotActivations')(agenda);
 
 // Start repeating jobs when ready
 agenda.on('ready', async () => {
   console.log('Agenda.js is ready and connected to MongoDB');
   await agenda.every('5 minutes', 'check-replies');
+  await agenda.every('1 minute', 'recover-autobot-activations');
 });
 
 module.exports = agenda;

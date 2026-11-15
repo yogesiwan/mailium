@@ -2,6 +2,7 @@ const Campaign = require('../models/Campaign');
 const Recipient = require('../models/Recipient');
 const { sendEmail } = require('../services/emailService');
 const { replacePlaceholders } = require('../services/templateEngine');
+const { renderAutoBotMessage } = require('../services/autobotRendering');
 const { generateTrackingId } = require('../services/trackingService');
 const { getAutopilotWindowState, getZonedDayBounds } = require('../utils/timezone');
 
@@ -13,6 +14,12 @@ module.exports = function(agenda) {
 
       if (!campaign || !['scheduled', 'sending'].includes(campaign.status)) {
         return done(); // Job shouldn't run
+      }
+      const autobotEnqueueGeneration = job.attrs.data.autobotEnqueueGeneration;
+      if (campaign.autobot?.provider === 'autobot'
+        && autobotEnqueueGeneration !== undefined
+        && autobotEnqueueGeneration !== campaign.autobot.enqueueGeneration) {
+        return done(); // Ignore jobs left behind by an earlier pause/resume generation
       }
 
       // Defer status update to sending until after autopilot check if autopilot is enabled
@@ -94,8 +101,13 @@ module.exports = function(agenda) {
       await recipient.save();
 
       try {
-        const subject = replacePlaceholders(campaign.subject, recipient.data);
-        const body = replacePlaceholders(campaign.body, recipient.data);
+        const renderedMessage = campaign.autobot?.provider === 'autobot'
+          ? renderAutoBotMessage(campaign, recipient.data)
+          : {
+              subject: replacePlaceholders(campaign.subject, recipient.data),
+              body: replacePlaceholders(campaign.body, recipient.data)
+            };
+        const { subject, body } = renderedMessage;
         
         const trackingId = campaign.settings.trackEmails ? generateTrackingId() : null;
 

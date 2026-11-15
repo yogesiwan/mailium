@@ -5,11 +5,22 @@ router.use(protect);
 const Campaign = require('../models/Campaign');
 const Recipient = require('../models/Recipient');
 const Settings = require('../models/Settings');
+const AutoBotDraftSync = require('../models/AutoBotDraftSync');
 const agenda = require('../config/agenda');
 const { sendTestEmail } = require('../services/emailService');
 const { replacePlaceholders } = require('../services/templateEngine');
 const { syncReplies } = require('../services/replySyncService');
 const { resolveTimezone, getAutopilotWindowState, getZonedDayBounds } = require('../utils/timezone');
+const { renderAutoBotMessage } = require('../services/autobotRendering');
+const { activateAutoBotCampaign, queueActivation } = require('../services/autobotActivation');
+
+const autoBotErrorResponse = (res, error) => res.status(error.statusCode || 409).json({
+  success: false,
+  code: error.code || 'AUTOBOT_ERROR',
+  error: error.message,
+  ...(error.currentRevision !== undefined ? { currentRevision: error.currentRevision } : {}),
+  ...(error.draftPath ? { draftPath: error.draftPath } : {})
+});
 
 const ACTIVE_FOLLOW_UP_STATUSES = ['pending', 'scheduled', 'sending'];
 
@@ -107,7 +118,19 @@ router.get('/', async (req, res, next) => {
     const companyName = req.query.companyName;
     const roleName = req.query.roleName;
 
+    const archived = req.query.archived;
     let query = { user: req.user._id };
+
+    // Default to excluding archived campaigns, unless explicitly requested
+    if (archived === 'true') {
+      query.isArchived = true;
+    } else {
+      query.isArchived = { $ne: true };
+    }
+
+    // Default to excluding single type campaigns, as they shouldn't clutter the main list
+    query.type = { $ne: 'single' };
+
     if (status && status !== 'All') query.status = status;
     if (companyName && companyName !== 'All') query.companyName = companyName;
     if (roleName && roleName !== 'All') query.roleName = roleName;
@@ -222,6 +245,10 @@ router.get('/metadata/options', async (req, res, next) => {
 router.patch('/:id/schedule', async (req, res, next) => {
   try {
     const { schedule, companyName, roleName } = req.body;
+    const existing = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
+    if (existing?.autobot?.provider === 'autobot') {
+      return res.status(409).json({ success: false, code: 'USE_ACTIVATION_FORM', error: 'Save the send time and delay in the AutoBot review form when scheduling' });
+    }
     const campaign = await Campaign.findOneAndUpdate(
       { _id: req.params.id, user: req.user._id },
       { $set: { schedule, companyName, roleName } },
@@ -330,11 +357,81 @@ router.get('/:id/recipients', async (req, res, next) => {
   }
 });
 
+// @route   GET /api/campaigns/:id/autobot-review
+// @desc    Return the complete AutoBot draft recipient set and rendered preview
+router.get('/:id/autobot-review', async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
+    if (!campaign || campaign.autobot?.provider !== 'autobot') {
+      return res.status(404).json({ success: false, error: 'AutoBot draft not found' });
+    }
+    const syncRecord = await AutoBotDraftSync.findById(campaign.autobot.syncRecordId).select('state');
+    if (campaign.autobot.syncStatus !== 'ready' || syncRecord?.state !== 'ready') {
+      return res.status(409).json({ success: false, code: 'DRAFT_SYNC_IN_PROGRESS', error: 'Wait for recipient sync to finish' });
+    }
+
+    const recipients = await Recipient.find({ campaignId: campaign._id, user: req.user._id })
+      .sort({ sortOrder: 1, _id: 1 })
+      .select('_id email data status sortOrder')
+      .lean();
+    const previewRecipient = recipients.find((recipient) => recipient.status === 'pending') || recipients[0] || null;
+    const preview = previewRecipient ? renderAutoBotMessage(campaign, previewRecipient.data) : null;
+    res.json({
+      success: true,
+      campaign: {
+        _id: campaign._id,
+        name: campaign.name,
+        status: campaign.status,
+        subject: campaign.subject,
+        body: campaign.body,
+        schedule: campaign.schedule,
+        from: campaign.from,
+        autobot: campaign.autobot
+      },
+      revision: campaign.autobot.revision || 0,
+      totalRecipients: recipients.length,
+      recipients,
+      previewRecipientId: previewRecipient?._id || null,
+      preview
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/autobot-preview/:recipientId', async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
+    if (!campaign || campaign.autobot?.provider !== 'autobot') {
+      return res.status(404).json({ success: false, error: 'AutoBot draft not found' });
+    }
+    const syncRecord = await AutoBotDraftSync.findById(campaign.autobot.syncRecordId).select('state');
+    if (campaign.autobot.syncStatus !== 'ready' || syncRecord?.state !== 'ready') {
+      return res.status(409).json({ success: false, code: 'DRAFT_SYNC_IN_PROGRESS', error: 'Wait for recipient sync to finish' });
+    }
+    const recipient = await Recipient.findOne({
+      _id: req.params.recipientId,
+      campaignId: campaign._id,
+      user: req.user._id
+    }).select('_id email data status').lean();
+    if (!recipient) return res.status(404).json({ success: false, error: 'Recipient not found' });
+    res.json({
+      success: true,
+      revision: campaign.autobot.revision || 0,
+      recipient,
+      preview: renderAutoBotMessage(campaign, recipient.data)
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // @route   POST /api/campaigns
 // @desc    Create new campaign
 router.post('/', async (req, res, next) => {
   try {
     const campaignPayload = await normalizeCampaignPayload(req.body, req.user._id);
+    delete campaignPayload.autobot;
     campaignPayload.user = req.user._id;
     const campaign = await Campaign.create(campaignPayload);
     res.status(201).json({ success: true, campaign });
@@ -352,6 +449,54 @@ router.put('/:id', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
 
+    if (existingCampaign.autobot?.provider === 'autobot') {
+      if (existingCampaign.autobot.activatedAt || existingCampaign.status !== 'draft') {
+        return autoBotErrorResponse(res, Object.assign(new Error('Activated AutoBot campaigns are locked'), {
+          statusCode: 409, code: 'DRAFT_LOCKED', draftPath: `/campaigns/${existingCampaign._id}`
+        }));
+      }
+      if (req.body.expectedRevision !== existingCampaign.autobot.revision) {
+        return autoBotErrorResponse(res, Object.assign(new Error('The draft changed; refresh and review it again'), {
+          statusCode: 409, code: 'STALE_REVIEW', currentRevision: existingCampaign.autobot.revision
+        }));
+      }
+      if (Array.isArray(req.body.followUps) && req.body.followUps.length > 0) {
+        return res.status(400).json({ success: false, code: 'FOLLOWUPS_UNSUPPORTED', error: 'AutoBot drafts cannot have follow-ups' });
+      }
+      const allowed = ['name', 'subject', 'body', 'attachments'];
+      const updates = {};
+      for (const key of allowed) {
+        if (Object.prototype.hasOwnProperty.call(req.body, key)) updates[key] = req.body[key];
+      }
+      if (typeof updates.subject !== 'undefined' && (typeof updates.subject !== 'string' || !updates.subject.trim())) {
+        return res.status(400).json({ success: false, error: 'Subject is required' });
+      }
+      if (typeof updates.body !== 'undefined' && (typeof updates.body !== 'string' || !updates.body.trim())) {
+        return res.status(400).json({ success: false, error: 'Message body is required' });
+      }
+      const campaign = await Campaign.findOneAndUpdate(
+        {
+          _id: existingCampaign._id,
+          user: req.user._id,
+          status: 'draft',
+          'autobot.revision': req.body.expectedRevision,
+          'autobot.activatedAt': { $exists: false }
+        },
+        { $set: updates, $inc: { 'autobot.revision': 1 } },
+        { new: true, runValidators: true }
+      );
+      if (!campaign) {
+        return autoBotErrorResponse(res, Object.assign(new Error('The draft changed; refresh and review it again'), {
+          statusCode: 409, code: 'STALE_REVIEW'
+        }));
+      }
+      await AutoBotDraftSync.updateOne(
+        { _id: campaign.autobot.syncRecordId, owner: req.user._id },
+        { $set: { revision: campaign.autobot.revision } }
+      );
+      return res.json({ success: true, campaign });
+    }
+
     const campaignPayload = await normalizeCampaignPayload({
       ...existingCampaign.toObject(),
       ...req.body
@@ -360,6 +505,7 @@ router.put('/:id', async (req, res, next) => {
     delete campaignPayload.createdAt;
     delete campaignPayload.updatedAt;
     delete campaignPayload.__v;
+    delete campaignPayload.autobot;
 
     const campaign = await Campaign.findOneAndUpdate(
       { _id: req.params.id, user: req.user._id }, 
@@ -401,6 +547,9 @@ router.post('/:id/follow-ups/schedule', async (req, res, next) => {
     const existingCampaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!existingCampaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+    if (existingCampaign.autobot?.provider === 'autobot') {
+      return res.status(400).json({ success: false, code: 'FOLLOWUPS_UNSUPPORTED', error: 'AutoBot drafts cannot have follow-ups' });
     }
 
     const campaignPayload = await normalizeCampaignPayload({
@@ -473,6 +622,9 @@ router.post('/:id/follow-ups/:order/cancel', async (req, res, next) => {
     const campaign = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
     if (!campaign) {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
+    }
+    if (campaign.autobot?.provider === 'autobot') {
+      return res.status(400).json({ success: false, code: 'FOLLOWUPS_UNSUPPORTED', error: 'AutoBot drafts cannot have follow-ups' });
     }
 
     const order = parseInt(req.params.order, 10);
@@ -615,6 +767,26 @@ router.post('/:id/send', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Campaign not found' });
     }
 
+    if (campaign.autobot?.provider === 'autobot') {
+      try {
+        const result = await activateAutoBotCampaign({
+          campaignId: campaign._id,
+          ownerId: req.user._id,
+          expectedRevision: req.body.expectedRevision,
+          schedule: req.body.schedule
+        });
+        const response = {
+          success: true,
+          campaign: result.campaign,
+          enqueueStatus: result.enqueueStatus
+        };
+        return res.status(result.enqueueStatus === 'pending' ? 202 : 200).json(response);
+      } catch (error) {
+        if (error.code) return autoBotErrorResponse(res, error);
+        throw error;
+      }
+    }
+
     if (['scheduled', 'sending', 'completed'].includes(campaign.status)) {
       return res.status(400).json({ success: false, error: 'Campaign is already scheduled, sending, or completed' });
     }
@@ -685,6 +857,34 @@ router.post('/:id/resume', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Campaign is not paused' });
     }
 
+    if (campaign.autobot?.provider === 'autobot') {
+      const syncRecord = await AutoBotDraftSync.findOne({
+        _id: campaign.autobot.syncRecordId,
+        campaignId: campaign._id,
+        owner: req.user._id
+      });
+      if (!syncRecord?.activatedAt) {
+        return res.status(409).json({ success: false, code: 'DRAFT_LOCKED', error: 'AutoBot activation record is unavailable' });
+      }
+      const now = new Date();
+      const sendAt = campaign.schedule?.sendAt ? new Date(campaign.schedule.sendAt) : now;
+      const isFutureSchedule = Number.isFinite(sendAt.getTime()) && sendAt.getTime() > now.getTime() + 1000;
+      campaign.status = isFutureSchedule ? 'scheduled' : 'sending';
+      campaign.autobot.enqueueGeneration = (campaign.autobot.enqueueGeneration || 0) + 1;
+      campaign.autobot.enqueueStatus = 'pending';
+      syncRecord.enqueueGeneration = campaign.autobot.enqueueGeneration;
+      syncRecord.enqueueStatus = 'pending';
+      await syncRecord.save();
+      await campaign.save();
+      try {
+        await queueActivation(syncRecord, campaign);
+        campaign.autobot.enqueueStatus = 'enqueued';
+        return res.json({ success: true, campaign, enqueueStatus: 'enqueued' });
+      } catch {
+        return res.status(202).json({ success: true, campaign, enqueueStatus: 'pending' });
+      }
+    }
+
     const now = new Date();
     const sendAt = campaign.schedule?.sendAt ? new Date(campaign.schedule.sendAt) : now;
     const isFutureSchedule = Number.isFinite(sendAt.getTime()) && sendAt.getTime() > now.getTime() + 1000;
@@ -716,8 +916,13 @@ router.post('/:id/test', async (req, res, next) => {
     const recipient = await Recipient.findOne({ campaignId: campaign._id });
     const data = recipient ? recipient.data : {};
 
-    const subject = replacePlaceholders(campaign.subject, data);
-    const body = replacePlaceholders(campaign.body, data);
+    const rendered = campaign.autobot?.provider === 'autobot'
+      ? renderAutoBotMessage(campaign, data)
+      : {
+          subject: replacePlaceholders(campaign.subject, data),
+          body: replacePlaceholders(campaign.body, data)
+        };
+    const { subject, body } = rendered;
     const to = testEmail || campaign.from.email;
 
     await sendTestEmail(to, subject, body, campaign.from.name, campaign.from.email, req.user._id, campaign.attachments);
@@ -759,9 +964,32 @@ router.patch('/:id/name', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Name is required' });
     }
     
+    const existing = await Campaign.findOne({ _id: req.params.id, user: req.user._id });
+    if (!existing) return res.status(404).json({ success: false, error: 'Campaign not found' });
+    if (existing.autobot?.provider === 'autobot') {
+      if (existing.autobot.activatedAt || existing.status !== 'draft') {
+        return autoBotErrorResponse(res, Object.assign(new Error('Activated AutoBot campaigns are locked'), {
+          statusCode: 409, code: 'DRAFT_LOCKED', draftPath: `/campaigns/${existing._id}`
+        }));
+      }
+      const campaign = await Campaign.findOneAndUpdate(
+        { _id: existing._id, user: req.user._id, status: 'draft', 'autobot.revision': existing.autobot.revision },
+        { $set: { name }, $inc: { 'autobot.revision': 1 } },
+        { new: true, runValidators: true }
+      );
+      if (!campaign) return autoBotErrorResponse(res, Object.assign(new Error('The draft changed; refresh and review it again'), {
+        statusCode: 409, code: 'STALE_REVIEW'
+      }));
+      await AutoBotDraftSync.updateOne(
+        { _id: campaign.autobot.syncRecordId, owner: req.user._id },
+        { $set: { revision: campaign.autobot.revision } }
+      );
+      return res.json({ success: true, campaign });
+    }
+
     const campaign = await Campaign.findOneAndUpdate(
-      { _id: req.params.id, user: req.user._id }, 
-      { name }, 
+      { _id: req.params.id, user: req.user._id },
+      { name },
       { new: true, runValidators: true }
     );
     
@@ -786,6 +1014,7 @@ router.post('/:id/duplicate', async (req, res, next) => {
     delete newCampaignData._id;
     delete newCampaignData.createdAt;
     delete newCampaignData.updatedAt;
+    delete newCampaignData.autobot;
     
     newCampaignData.name = `Copy of ${newCampaignData.name}`;
     newCampaignData.status = 'draft';
@@ -812,6 +1041,7 @@ router.post('/:id/duplicate', async (req, res, next) => {
         delete rObj.createdAt;
         delete rObj.updatedAt;
         delete rObj.__v;
+        delete rObj.origin;
         
         rObj.campaignId = newCampaign._id;
         rObj.status = 'pending';
@@ -826,6 +1056,135 @@ router.post('/:id/duplicate', async (req, res, next) => {
     }
 
     res.json({ success: true, campaign: newCampaign });
+  } catch (err) {
+    next(err);
+  }
+});
+
+
+
+// @route   PATCH /api/campaigns/:id/archive
+// @desc    Archive a campaign
+router.patch('/:id/archive', async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id },
+      { isArchived: true },
+      { new: true }
+    );
+    if (!campaign) return res.status(404).json({ success: false, error: 'Campaign not found' });
+    res.json({ success: true, campaign });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   PATCH /api/campaigns/:id/unarchive
+// @desc    Unarchive a campaign
+router.patch('/:id/unarchive', async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findOneAndUpdate(
+      { _id: req.params.id, user: req.user._id },
+      { isArchived: false },
+      { new: true }
+    );
+    if (!campaign) return res.status(404).json({ success: false, error: 'Campaign not found' });
+    res.json({ success: true, campaign });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   POST /api/campaigns/bulk-archive
+// @desc    Bulk archive campaigns
+router.post('/bulk-archive', async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'No campaign IDs provided' });
+    }
+    const result = await Campaign.updateMany(
+      { _id: { $in: ids }, user: req.user._id },
+      { $set: { isArchived: true } }
+    );
+    res.json({ success: true, modifiedCount: result.modifiedCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   POST /api/campaigns/bulk-unarchive
+// @desc    Bulk unarchive campaigns
+router.post('/bulk-unarchive', async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'No campaign IDs provided' });
+    }
+    const result = await Campaign.updateMany(
+      { _id: { $in: ids }, user: req.user._id },
+      { $set: { isArchived: false } }
+    );
+    res.json({ success: true, modifiedCount: result.modifiedCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// @route   POST /api/campaigns/single-email
+// @desc    Create a single-email campaign and send immediately
+router.post('/single-email', async (req, res, next) => {
+  try {
+    const to = typeof req.body?.to === 'string' ? req.body.to.trim() : '';
+    const subject = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
+    const body = typeof req.body?.body === 'string' ? req.body.body : '';
+    if (!to || !subject || !body.trim()) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      return res.status(400).json({ success: false, error: 'A valid recipient email is required' });
+    }
+
+    const settings = await Settings.findOne({ user: req.user._id });
+
+    // Create the "single" type campaign
+    const campaign = new Campaign({
+      user: req.user._id,
+      name: `Single Mail: ${subject.substring(0, 30)}`,
+      subject,
+      body,
+      type: 'single',
+      status: 'sending',
+      from: {
+        name: settings?.defaults?.fromName || settings?.google?.userName || req.user.name || '',
+        email: settings?.defaults?.fromEmail || settings?.google?.userEmail || req.user.email || ''
+      },
+      settings: {
+        trackEmails: true
+      },
+      stats: { totalRecipients: 1 }
+    });
+    await campaign.save();
+
+    try {
+      const recipient = new Recipient({
+        campaignId: campaign._id,
+        user: req.user._id,
+        email: to,
+        status: 'pending',
+        data: { email: to }
+      });
+      await recipient.save();
+
+      // Trigger agenda worker to process this immediately
+      await agenda.now('send-campaign-emails', { campaignId: campaign._id.toString() });
+    } catch (err) {
+      await Recipient.deleteMany({ campaignId: campaign._id, user: req.user._id });
+      await Campaign.deleteOne({ _id: campaign._id, user: req.user._id });
+      throw err;
+    }
+
+    res.json({ success: true, campaign });
   } catch (err) {
     next(err);
   }

@@ -1,10 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Search, Bell, User, LogOut } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Search, Bell, User, LogOut, Zap } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import QuickSendModal from '../common/QuickSendModal';
 
 const Header = () => {
   const { user, logout } = useAuth();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isQuickSendOpen, setIsQuickSendOpen] = useState(false);
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -37,6 +39,13 @@ const Header = () => {
       </div>
       
       <div className="flex items-center gap-4">
+        <button
+          onClick={() => setIsQuickSendOpen(true)}
+          className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-full transition-colors relative"
+          title="Quick Send"
+        >
+          <Zap size={20} />
+        </button>
         <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors relative">
           <Bell size={20} />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
@@ -66,6 +75,8 @@ const Header = () => {
           )}
         </div>
       </div>
+
+      <QuickSendModal isOpen={isQuickSendOpen} onClose={() => setIsQuickSendOpen(false)} />
     </header>
   );
 };

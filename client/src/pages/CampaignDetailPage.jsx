@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import api from '../api';
-import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch, Zap, Timer, Settings, FileText, Moon, GripVertical, X, Check, ArrowDownUp } from 'lucide-react';
+import { Mail, Eye, ArrowLeft, MoreHorizontal, Copy, Edit2, Play, Pause, CheckCircle2, Clock, Plus, Save, Loader2, LayoutTemplate, Reply, ChevronDown, ChevronRight, RefreshCw, CalendarCheck, GitBranch, Zap, Settings, FileText, Moon, GripVertical, X, Check, ArrowDownUp, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import FollowUpEditor from '../components/campaign/FollowUpEditor';
 import ComposeEditor from '../components/campaign/ComposeEditor';
 import AttachmentViewer from '../components/campaign/AttachmentViewer';
 import CampaignSettingsModal from '../components/campaign/CampaignSettingsModal';
+import AutoBotDraftReview from '../components/campaign/AutoBotDraftReview';
 import Modal from '../components/common/Modal';
 import { formatDateTime } from '../utils/timezones';
 
@@ -20,6 +21,34 @@ const isBlankHtml = (value = '') => {
     .replace(/&nbsp;/g, ' ')
     .trim();
   return text.length === 0;
+};
+
+const extractVariables = (campaign) => {
+  const vars = new Set();
+  const regex = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
+
+  const extract = (text) => {
+    if (!text) return;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const varName = match[1];
+      if (varName && varName !== 'unsubscribe') {
+        vars.add(varName);
+      }
+    }
+  };
+
+  if (campaign) {
+    extract(campaign.subject);
+    extract(campaign.body);
+    if (campaign.followUps) {
+      campaign.followUps.forEach(f => {
+        extract(f.subject);
+        extract(f.body);
+      });
+    }
+  }
+  return Array.from(vars);
 };
 
 const CampaignDetailPage = () => {
@@ -68,6 +97,8 @@ const CampaignDetailPage = () => {
   const [draggedRecipientIndex, setDraggedRecipientIndex] = useState(null);
   const [orderedRecipients, setOrderedRecipients] = useState([]);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+
+  const requiredVariables = useMemo(() => extractVariables(data?.campaign), [data?.campaign]);
 
   useEffect(() => {
     isSequenceDirtyRef.current = isSequenceDirty;
@@ -346,7 +377,7 @@ const CampaignDetailPage = () => {
         subject: followUp.inSameThread !== false ? data.campaign.subject || '' : followUp.subject,
         attachments: await uploadFilesIfNeeded(followUp.attachments)
       })));
-    } catch (err) {
+    } catch {
       toast.error('Failed to upload attachments');
       return;
     }
@@ -437,13 +468,19 @@ const CampaignDetailPage = () => {
       return;
     }
 
+    // Validate required variables
+    const missingVars = requiredVariables.filter(v => !newRecipientData[v] || newRecipientData[v].trim() === '');
+    if (missingVars.length > 0) {
+      toast.error(`Missing required variables: ${missingVars.join(', ')}`);
+      return;
+    }
+
     setIsSubmittingRecipient(true);
     try {
       const payload = {
         email: newRecipientData.email,
         data: { ...newRecipientData }
       };
-      delete payload.data.email;
 
       await api.post(`/campaigns/${id}/recipients/add`, payload);
       toast.success('Recipient added');
@@ -454,6 +491,16 @@ const CampaignDetailPage = () => {
       toast.error(err.response?.data?.error || 'Failed to add recipient');
     } finally {
       setIsSubmittingRecipient(false);
+    }
+  };
+
+  const handleDeleteRecipient = async (recipientId) => {
+    try {
+      await api.delete(`/campaigns/${id}/recipients/${recipientId}`);
+      toast.success('Recipient deleted');
+      fetchRecipients();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete recipient');
     }
   };
 
@@ -492,7 +539,7 @@ const CampaignDetailPage = () => {
       toast.success('Queue order saved');
       setIsReordering(false);
       fetchRecipients(); // Refresh list to get natural state from backend
-    } catch (err) {
+    } catch {
       toast.error('Failed to save order');
     } finally {
       setIsSavingOrder(false);
@@ -671,9 +718,11 @@ const CampaignDetailPage = () => {
               <button onClick={fetchCampaign} className="btn-outline flex items-center gap-1.5 px-2 py-1">
                 <RefreshCw size={14} className={isStatsRefreshing ? "animate-spin" : ""} /> Refresh
               </button>
-              <button onClick={() => setIsSettingsModalOpen(true)} className="btn-outline flex items-center gap-1.5 px-2 py-1">
-                <Settings size={14} /> Edit Settings
-              </button>
+              {campaign.autobot?.provider !== 'autobot' && (
+                <button onClick={() => setIsSettingsModalOpen(true)} className="btn-outline flex items-center gap-1.5 px-2 py-1">
+                  <Settings size={14} /> Edit Settings
+                </button>
+              )}
               {lastUpdatedAt && <span>- Updated {lastUpdatedAt.toLocaleTimeString()}</span>}
             </div>
           </div>
@@ -733,6 +782,13 @@ const CampaignDetailPage = () => {
           </div>
         </div>
       </div>
+
+      {campaign.autobot?.provider === 'autobot' && (
+        <AutoBotDraftReview
+          campaign={campaign}
+          onCampaignUpdated={(updatedCampaign) => setData((current) => ({ ...current, campaign: updatedCampaign }))}
+        />
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div className="stat-card">
@@ -899,6 +955,7 @@ const CampaignDetailPage = () => {
       </div>
 
       {/* Sequence Builder Section */}
+      {campaign.autobot?.provider !== 'autobot' && (
       <div className="mb-8 card shadow-sm flex flex-col">
         <div className="px-6 py-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50 rounded-t-xl">
           <button
@@ -1049,6 +1106,7 @@ const CampaignDetailPage = () => {
           </div>
         )}
       </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
@@ -1066,14 +1124,14 @@ const CampaignDetailPage = () => {
                     <button 
                       className="btn-outline text-sm gap-2"
                       onClick={() => setIsAddingRecipient(!isAddingRecipient)}
-                      disabled={campaign.status === 'completed'}
+                      disabled={campaign.autobot?.provider === 'autobot' || !['draft', 'paused', 'scheduled'].includes(campaign.status)}
                     >
                       <Plus size={16} /> Add
                     </button>
                     <button 
                       className="btn-outline text-sm gap-2"
                       onClick={() => setIsReordering(true)}
-                      disabled={recipientsData.recipients.length === 0}
+                      disabled={campaign.autobot?.provider === 'autobot' || recipientsData.recipients.length === 0 || !['draft', 'paused', 'scheduled'].includes(campaign.status)}
                     >
                       <ArrowDownUp size={16} /> Reorder
                     </button>
@@ -1112,12 +1170,13 @@ const CampaignDetailPage = () => {
                     <th className="px-6 py-4 text-center">Sent At</th>
                     <th className="px-6 py-4 text-center">Opened</th>
                     <th className="px-6 py-4 text-center">Clicked</th>
+                    <th className="px-6 py-4 text-center"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {loadingRecipients ? (
                     <tr>
-                      <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
                         <div className="flex flex-col items-center justify-center gap-3">
                           <Loader2 className="animate-spin text-gray-400" size={24} />
                           <span>Loading recipients...</span>
@@ -1128,7 +1187,7 @@ const CampaignDetailPage = () => {
                     <>
                       {isAddingRecipient && (
                         <tr className="bg-blue-50/50">
-                          <td colSpan="5" className="px-6 py-4 border-b border-blue-100">
+                          <td colSpan="6" className="px-6 py-4 border-b border-blue-100">
                             <div className="flex flex-wrap gap-3 items-end">
                               <div className="flex-1 min-w-[200px]">
                                 <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
@@ -1141,9 +1200,9 @@ const CampaignDetailPage = () => {
                                   disabled={isSubmittingRecipient}
                                 />
                               </div>
-                              {(recipientsData.recipients.length > 0 ? Object.keys(recipientsData.recipients[0].data || {}) : []).map(key => (
+                              {requiredVariables.map(key => (
                                 <div key={key} className="flex-1 min-w-[150px]">
-                                  <label className="block text-xs font-medium text-gray-700 mb-1">{key}</label>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">{key} <span className="text-red-500">*</span></label>
                                   <input
                                     type="text"
                                     className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1207,12 +1266,23 @@ const CampaignDetailPage = () => {
                         <td className="px-6 py-4 text-center">
                           {r.mainEmail?.clicked ? <span className="text-emerald-500 flex justify-center"><CheckCircle2 size={18}/></span> : <span className="text-gray-300">-</span>}
                         </td>
+                        <td className="px-6 py-4 text-center">
+                          {campaign.autobot?.provider !== 'autobot' && r.status === 'pending' && ['draft', 'paused', 'scheduled'].includes(campaign.status) && !isReordering && (
+                            <button
+                              onClick={() => handleDeleteRecipient(r._id)}
+                              className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-md hover:bg-red-50"
+                              title="Delete Recipient"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                     </>
                   ) : (
                     <tr>
-                      <td colSpan="5" className="px-6 py-12 text-center text-gray-500 bg-gray-50/30">
+                      <td colSpan="6" className="px-6 py-12 text-center text-gray-500 bg-gray-50/30">
                         No recipients found.
                       </td>
                     </tr>

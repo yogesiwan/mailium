@@ -18,7 +18,7 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
@@ -26,6 +26,7 @@ app.use(morgan('dev'));
 app.use('/uploads', express.static('uploads'));
 
 // Define Routes
+app.use('/api/integrations/autobot', require('./routes/autobotIntegration'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/campaigns', require('./routes/campaigns'));
 app.use('/api/campaigns/:campaignId/recipients', require('./routes/recipients'));

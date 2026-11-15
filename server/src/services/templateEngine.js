@@ -4,7 +4,14 @@
  * @param {Object} data - The data object containing values
  * @returns {string} - The processed string
  */
-const replacePlaceholders = (template, data) => {
+const escapeHtml = (value) => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const replacePlaceholders = (template, data, options = {}) => {
   if (!template) return template;
   if (!data) return template;
 
@@ -15,7 +22,9 @@ const replacePlaceholders = (template, data) => {
     // Let's replace with data value if it exists and is not null/undefined, else empty string
     const value = data[key];
     if (value !== undefined && value !== null) {
-      return value;
+      let replacement = String(value);
+      if (options.singleLine) replacement = replacement.replace(/[\r\n]+/g, ' ');
+      return options.escapeHtml ? escapeHtml(replacement) : replacement;
     }
     // Return empty string for missing placeholders to avoid sending {{name}} in emails
     return '';
@@ -39,5 +48,6 @@ const extractPlaceholders = (template) => {
 
 module.exports = {
   replacePlaceholders,
-  extractPlaceholders
+  extractPlaceholders,
+  escapeHtml
 };

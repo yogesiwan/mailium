@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
-import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X, MoreVertical, Trash2, Check, Timer, Zap, Moon } from 'lucide-react';
+import { Mail, BarChart2, Play, Pause, Edit3, Loader2, Copy, FileText, CheckCircle2, Clock, Search, Building2, UserRound, X, MoreVertical, Trash2, Check, Zap, Moon } from 'lucide-react';
 import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '../components/common/DropdownMenu';
 import AlertDialog from '../components/common/AlertDialog';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -19,7 +19,6 @@ const CampaignsPage = () => {
 
   const setActiveTab = (val) => setSearchParams(prev => { prev.set('tab', val); return prev; });
   const setSearchTerm = (val) => setSearchParams(prev => { if(val) prev.set('search', val); else prev.delete('search'); return prev; });
-  const setCompanyFilter = (val) => setSearchParams(prev => { prev.set('company', val); return prev; });
   const setRoleFilter = (val) => setSearchParams(prev => { prev.set('role', val); return prev; });
 
   const [selectedCampaigns, setSelectedCampaigns] = useState(new Set());
@@ -32,6 +31,7 @@ const CampaignsPage = () => {
       if (searchTerm.trim()) params.set('search', searchTerm.trim());
       if (companyFilter !== 'All') params.set('companyName', companyFilter);
       if (roleFilter !== 'All') params.set('roleName', roleFilter);
+      if (activeTab === 'Archived') params.set('archived', 'true');
 
       const res = await api.get(`/campaigns?${params.toString()}`);
       setCampaigns(res.data.campaigns);
@@ -41,7 +41,7 @@ const CampaignsPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [companyFilter, roleFilter, searchTerm]);
+  }, [companyFilter, roleFilter, searchTerm, activeTab]);
 
   useEffect(() => {
     fetchCampaigns();
@@ -70,6 +70,27 @@ const CampaignsPage = () => {
       return 'running';
     }
     return c.status;
+  };
+
+  const handleArchive = async (id, isArchiving) => {
+    try {
+      await api.patch(`/campaigns/${id}/${isArchiving ? 'archive' : 'unarchive'}`);
+      toast.success(isArchiving ? 'Campaign archived' : 'Campaign unarchived');
+      await fetchCampaigns();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to change archive status');
+    }
+  };
+
+  const handleBulkArchive = async (isArchiving) => {
+    try {
+      await api.post(`/campaigns/${isArchiving ? 'bulk-archive' : 'bulk-unarchive'}`, { ids: Array.from(selectedCampaigns) });
+      toast.success(isArchiving ? 'Campaigns archived' : 'Campaigns unarchived');
+      setSelectedCampaigns(new Set());
+      await fetchCampaigns();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to change archive status in bulk');
+    }
   };
 
   const getStatusBadge = (camp) => {
@@ -188,14 +209,14 @@ const CampaignsPage = () => {
     }
   };
 
-  const tabs = ['All', 'Draft', 'Scheduled', 'Running', 'Sleeping', 'Paused', 'Completed'];
+  const tabs = ['All', 'Draft', 'Scheduled', 'Running', 'Sleeping', 'Paused', 'Completed', 'Archived'];
 
   const resetFilters = () => {
     setSearchParams(new URLSearchParams());
   };
 
   const filteredCampaigns = useMemo(() => {
-    if (activeTab === 'All') return campaigns;
+    if (activeTab === 'All' || activeTab === 'Archived') return campaigns;
     return campaigns.filter(c => {
       const derived = getDerivedStatus(c).toLowerCase();
       const tabStr = activeTab.toLowerCase();
@@ -205,16 +226,12 @@ const CampaignsPage = () => {
     });
   }, [campaigns, activeTab]);
 
-  const groupedCampaigns = useMemo(() => {
-    if (companyFilter === 'All') return null;
-
-    return filteredCampaigns.reduce((groups, campaign) => {
-      const role = campaign.roleName || 'No targeted role';
-      if (!groups[role]) groups[role] = [];
-      groups[role].push(campaign);
-      return groups;
-    }, {});
-  }, [filteredCampaigns, companyFilter]);
+  const groupedCampaigns = companyFilter === 'All' ? null : filteredCampaigns.reduce((groups, campaign) => {
+    const role = campaign.roleName || 'No targeted role';
+    if (!groups[role]) groups[role] = [];
+    groups[role].push(campaign);
+    return groups;
+  }, {});
 
   const roleOptions = useMemo(() => {
     if (companyFilter === 'All') return filters.roles;
@@ -253,7 +270,7 @@ const CampaignsPage = () => {
             >
               {tab}
               <span className="ml-2 text-xs py-0.5 px-2 rounded-full bg-gray-100 text-gray-600 font-normal">
-                {tab === 'All' ? campaigns.length : campaigns.filter(c => {
+                {tab === 'All' || tab === 'Archived' ? campaigns.length : campaigns.filter(c => {
                   const derived = getDerivedStatus(c).toLowerCase();
                   const tabStr = tab.toLowerCase();
                   if (tabStr === 'sleeping' && derived.startsWith('sleeping')) return true;
@@ -528,6 +545,10 @@ const CampaignsPage = () => {
                       </DropdownMenuItem>
                     )}
 
+                    <DropdownMenuItem onClick={() => handleArchive(camp._id, !camp.isArchived)}>
+                      <FileText size={16} /> {camp.isArchived ? 'Unarchive' : 'Archive'}
+                    </DropdownMenuItem>
+
                     <DropdownMenuSeparator />
                     
                     <DropdownMenuItem 
@@ -555,10 +576,25 @@ const CampaignsPage = () => {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-6 py-3 bg-gray-900 text-white rounded-full shadow-2xl transition-all animate-in slide-in-from-bottom-8 duration-300">
           <span className="text-sm font-medium">{selectedCampaigns.size} selected</span>
           <div className="w-px h-4 bg-gray-600"></div>
+
+          <button
+            onClick={() => handleBulkArchive(true)}
+            className="text-sm font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1.5 transition-colors"
+          >
+            <FileText size={16} /> Archive
+          </button>
+
+          <button
+            onClick={() => handleBulkArchive(false)}
+            className="text-sm font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1.5 transition-colors"
+          >
+            <FileText size={16} /> Unarchive
+          </button>
+
           <button 
             onClick={confirmBulkDelete} 
             disabled={isDeleting}
-            className="text-sm font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            className="text-sm font-medium text-red-400 hover:text-red-300 flex items-center gap-1.5 transition-colors disabled:opacity-50 ml-2"
           >
             <Trash2 size={16} /> Delete
           </button>

@@ -6,6 +6,12 @@ const recipientSchema = new mongoose.Schema({
   email: { type: String, required: true },
   data: mongoose.Schema.Types.Mixed,
   sortOrder: { type: Number, default: 0 },
+  origin: {
+    provider: { type: String, enum: ['autobot'] },
+    integrationId: String,
+    scanDate: String,
+    jobId: String
+  },
 
   status: {
     type: String,

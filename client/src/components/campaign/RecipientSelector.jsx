@@ -9,7 +9,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
   const [method, setMethod] = useState(null); // 'sheets', 'csv'
 
   // Sheets state
-  const [spreadsheetUrl, setSpreadsheetUrl] = useState('');
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState(() => localStorage.getItem('lastGoogleSheetUrl') || '');
   const [sheetNames, setSheetNames] = useState([]);
   const [selectedSheet, setSelectedSheet] = useState('');
   
@@ -25,6 +25,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
   const [importedSummary, setImportedSummary] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pastedData, setPastedData] = useState('');
 
   const getEmail = (row) => row?.[emailColumn] || row?.email || row?.Email || row?.EMAIL || '';
   const getName = (row) => row?.name || row?.Name || row?.fullName || row?.FullName || row?.['Full Name'] || '';
@@ -62,6 +63,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
     try {
       const res = await api.post('/sheets/names', { spreadsheetUrl });
       setSheetNames(res.data.sheets);
+      localStorage.setItem('lastGoogleSheetUrl', spreadsheetUrl);
     } catch (err) {
       setError(getApiError(err, 'Failed to fetch sheets. Make sure the URL is correct and the sheet is accessible.'));
     } finally {
@@ -84,6 +86,43 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handlePasteParse = () => {
+    if (!pastedData || pastedData.trim() === '') {
+      setError('Please paste some data first');
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    Papa.parse(pastedData.trim(), {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        if (results.data && results.data.length > 0) {
+          const cols = Object.keys(results.data[0]);
+          setColumns(cols);
+
+          const emailCol = cols.find(c => c.toLowerCase().includes('email'));
+          if (emailCol) setEmailColumn(emailCol);
+
+          setPreviewData({
+             totalRows: results.data.length,
+             filteredCount: results.data.length,
+             data: results.data,
+             sampleRows: results.data.slice(0, 5)
+          });
+          setStep(3);
+        } else {
+          setError('Pasted data is empty or invalid');
+        }
+        setIsLoading(false);
+      },
+      error: (err) => {
+        setError('Failed to parse pasted data: ' + err.message);
+        setIsLoading(false);
+      }
+    });
   };
 
   const handleCsvUpload = (e) => {
@@ -124,7 +163,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
 
   const handleFetchUniqueValues = async (columnName) => {
     setFilterColumn(columnName);
-    if (method === 'csv') {
+    if (['csv', 'copy_paste'].includes(method)) {
       // Filter client-side
       const vals = [...new Set(previewData.data.map(row => row[columnName]).filter(v => v !== undefined && v !== ''))].sort();
       setUniqueValues(vals);
@@ -158,7 +197,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
       return;
     }
     
-    if (method === 'csv') {
+    if (['csv', 'copy_paste'].includes(method)) {
       let validData = previewData.data;
       if (filterColumn && selectedValues.length > 0) {
         validData = validData.filter(row => selectedValues.includes(row[filterColumn]));
@@ -224,7 +263,7 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
         )}
         
         {step === 1 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-2">
             <button 
               className="group flex flex-col items-center justify-center p-8 bg-white border-2 border-dashed border-gray-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition-all text-left w-full h-full"
               onClick={() => handleMethodSelect('sheets')}
@@ -246,8 +285,20 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Import a CSV</h3>
               <p className="text-sm text-gray-500 text-center">Upload a .csv file from your computer</p>
             </button>
+
+            <button
+              className="group flex flex-col items-center justify-center p-6 bg-white border-2 border-dashed border-gray-200 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all text-left w-full h-full"
+              onClick={() => handleMethodSelect('copy_paste')}
+            >
+              <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <FileText size={32} />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Paste Data</h3>
+              <p className="text-sm text-gray-500 text-center">Copy & paste tabular data (TSV/CSV)</p>
+            </button>
           </div>
         )}
+
 
         {step === 2 && method === 'sheets' && (
           <div className="space-y-6">
@@ -326,6 +377,42 @@ const RecipientSelector = ({ isOpen, onClose, onImport }) => {
               <button className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors" onClick={() => setStep(1)} disabled={isLoading}>
                 <ChevronLeft size={16} /> Back
               </button>
+            </div>
+          </div>
+        )}
+
+
+        {step === 2 && method === 'copy_paste' && (
+          <div className="flex flex-col min-h-[250px] space-y-4">
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center h-48 gap-3">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="text-gray-500 font-medium">Parsing data...</p>
+              </div>
+            ) : (
+              <>
+                <label className="block text-sm font-medium text-gray-700">Paste your tabular data (CSV/TSV format, first row must be column headers)</label>
+                <textarea
+                  className="w-full h-48 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="email,name,company\njohn@example.com,John Doe,Acme\n..."
+                  value={pastedData}
+                  onChange={e => setPastedData(e.target.value)}
+                />
+              </>
+            )}
+            <div className="w-full flex justify-between items-center pt-6 border-t border-gray-100">
+              <button className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors" onClick={() => setStep(1)} disabled={isLoading}>
+                <ChevronLeft size={16} /> Back
+              </button>
+              {!isLoading && (
+                <button
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  onClick={handlePasteParse}
+                  disabled={!pastedData || pastedData.trim() === ''}
+                >
+                  Next <ChevronRight size={16} />
+                </button>
+              )}
             </div>
           </div>
         )}
