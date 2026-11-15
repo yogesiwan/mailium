@@ -26,11 +26,12 @@ const initialCampaignState = {
   }
 };
 
-export const DraftProvider = ({ children }) => {
+export const DraftProvider = ({ children, userId }) => {
+  const storageKey = userId ? `mailium_campaign_draft:${userId}` : null;
   // Load initial state from LocalStorage if available
   const loadSavedState = () => {
     try {
-      const saved = localStorage.getItem('mailium_campaign_draft');
+      const saved = storageKey ? localStorage.getItem(storageKey) : null;
       if (saved) {
         return JSON.parse(saved);
       }
@@ -44,8 +45,8 @@ export const DraftProvider = ({ children }) => {
     };
   };
 
-  const savedState = loadSavedState();
-  
+  const [savedState] = useState(loadSavedState);
+
   const [campaign, setCampaign] = useState(savedState.campaign);
   const [recipientsData, setRecipientsData] = useState(savedState.recipientsData);
   const [availableColumns, setAvailableColumns] = useState(savedState.availableColumns);
@@ -53,24 +54,25 @@ export const DraftProvider = ({ children }) => {
 
   // Sync state to LocalStorage whenever it changes
   useEffect(() => {
+    if (!storageKey) return;
     try {
       const stateToSave = {
         campaign,
         recipientsData,
         availableColumns
       };
-      localStorage.setItem('mailium_campaign_draft', JSON.stringify(stateToSave));
+      localStorage.setItem(storageKey, JSON.stringify(stateToSave));
     } catch (error) {
       console.error('Failed to save draft to localStorage:', error);
     }
-  }, [campaign, recipientsData, availableColumns]);
+  }, [campaign, recipientsData, availableColumns, storageKey]);
 
   const clearDraft = () => {
     setCampaign(initialCampaignState);
     setRecipientsData([]);
     setAvailableColumns([]);
     setAttachments([]);
-    localStorage.removeItem('mailium_campaign_draft');
+    if (storageKey) localStorage.removeItem(storageKey);
   };
 
   return (

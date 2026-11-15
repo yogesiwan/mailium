@@ -8,16 +8,21 @@ import TemplatesPage from './pages/TemplatesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import PrivateRoute from './components/routing/PrivateRoute';
 import PublicRoute from './components/routing/PublicRoute';
 import LandingPage from './pages/LandingPage';
 import { DraftProvider } from './context/DraftContext';
 
+const AccountDraftProvider = ({ children }) => {
+  const { user } = useAuth();
+  return <DraftProvider key={user?._id || 'signed-out'} userId={user?._id}>{children}</DraftProvider>;
+};
+
 function App() {
   return (
     <AuthProvider>
-      <DraftProvider>
+      <AccountDraftProvider>
         <Router>
           <Routes>
             <Route element={<PublicRoute />}>
@@ -39,7 +44,7 @@ function App() {
             </Route>
           </Routes>
         </Router>
-      </DraftProvider>
+      </AccountDraftProvider>
     </AuthProvider>
   );
 }
